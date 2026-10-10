@@ -1,0 +1,236 @@
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import App from '../src/App';
+import { AuthProvider } from '../src/auth';
+import type { AllData, User } from '../src/api';
+
+const user: User = {
+  id: 1,
+  email: 'estudante@example.test',
+  username: 'Estudante',
+  avatarMode: 'character',
+  avatarImage: null,
+  character: { skin: 1, hair: 1, hc: 1, shirt: 0, style: 0, acc: 0, ac: 2, bg: 0 },
+  hasPassword: true,
+};
+
+let data: AllData;
+let currentUser: User;
+let requests: Array<{ method: string; path: string; body: unknown }>;
+let rejectNextMutation: string | null;
+
+function response(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+function recalculateProgress() {
+  data.projects = data.projects.map((project) => {
+    const tasks = data.tasks.filter((task) => task.project_id === project.id);
+    const completed = tasks.filter((task) => task.done).length;
+    return { ...project, progress: tasks.length ? Math.round(completed / tasks.length * 100) : 0 };
+  });
+}
+
+function renderApp() {
+  return render(<AuthProvider><App /></AuthProvider>);
+}
+
+beforeEach(() => {
+  currentUser = { ...user, character: { ...user.character } };
+  data = { subjects: [], tasks: [], projects: [], sessions: {} };
+  requests = [];
+  rejectNextMutation = null;
+
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = String(input).replace('/api', '');
+    const method = init?.method ?? 'GET';
+    const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : {};
+    requests.push({ method, path, body });
+
+    if (method !== 'GET' && rejectNextMutation) {
+      const message = rejectNextMutation;
+      rejectNextMutation = null;
+      return response({ error: message }, 400);
+    }
+
+    if (method === 'GET' && path === '/me') return response(currentUser);
+    if (method === 'GET' && path === '/all') return response(data);
+    if (method === 'POST' && path === '/auth/logout') return response({});
+    if (method === 'POST' && path === '/subjects') {
+      const subject = { id: Date.now(), name: String(body.name), color: '#A8D68B', notes: '' };
+      data.subjects.push(subject);
+      return response({ id: subject.id });
+    }
+    if (method === 'PUT' && path.startsWith('/subjects/')) {
+      const id = Number(path.split('/').pop());
+      data.subjects = data.subjects.map((subject) =>
+        subject.id === id ? { ...subject, notes: String(body.notes ?? subject.notes) } : subject);
+      return response({});
+    }
+    if (method === 'POST' && path === '/tasks') {
+      data.tasks.push({
+        id: Date.now(),
+        title: String(body.title),
+        subject_id: typeof body.subject_id === 'number' ? body.subject_id : null,
+        project_id: typeof body.project_id === 'number' ? body.project_id : null,
+        due: String(body.due ?? ''),
+        done: 0,
+      });
+      recalculateProgress();
+      return response({});
+    }
+    if (method === 'PATCH' && path.startsWith('/tasks/')) {
+      const id = Number(path.split('/').pop());
+      data.tasks = data.tasks.map((task) => task.id === id
+        ? {
+            ...task,
+            ...(typeof body.done === 'boolean' ? { done: body.done ? 1 : 0 } : {}),
+            ...(Object.prototype.hasOwnProperty.call(body, 'project_id')
+              ? { project_id: typeof body.project_id === 'number' ? body.project_id : null }
+              : {}),
+          }
+        : task);
+      recalculateProgress();
+      return response({});
+    }
+    if (method === 'PUT' && path === '/me') {
+      currentUser = { ...currentUser, ...body } as User;
+      return response(currentUser);
+    }
+    return response({ error: `Rota sem mock: ${method} ${path}` }, 404);
+  }));
+});
+
+describe('fluxos principais da interface', () => {
+  it('navega pelas seções e cria uma matéria em uma conta vazia', async () => {
+    const user = userEvent.setup();
+    renderApp();
+
+    expect(await screen.findByRole('heading', { name: /Estudante/ })).not.toBeNull();
+    expect(screen.getByText('Nada pendente por enquanto. Respire fundo e aproveite o dia.')).not.toBeNull();
+
+    await user.click(screen.getByRole('button', { name: 'Matérias' }));
+    expect(screen.getByText('Plante sua primeira matéria acima.')).not.toBeNull();
+
+    await user.type(screen.getByRole('textbox', { name: 'Nome da nova matéria' }), 'Cálculo');
+    await user.click(screen.getByRole('button', { name: 'Plantar matéria' }));
+
+    expect(await screen.findByRole('heading', { name: 'Cálculo' })).not.toBeNull();
+    expect(requests).toContainEqual({
+      method: 'POST',
+      path: '/subjects',
+      body: { name: 'Cálculo' },
+    });
+  });
+
+  it('salva notas após o debounce e permite visualizar Markdown', async () => {
+    data.subjects = [{ id: 10, name: 'Biologia', color: '#A8D68B', notes: '' }];
+    renderApp();
+    await screen.findByRole('heading', { name: /Estudante/ });
+    fireEvent.click(screen.getByRole('button', { name: 'Matérias' }));
+    const notes = await screen.findByRole('textbox', { name: 'Notas em Markdown' });
+
+    vi.useFakeTimers();
+    try {
+      fireEvent.change(notes, { target: { value: '**mitose**' } });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(600);
+      });
+
+      expect(requests).toContainEqual({
+        method: 'PUT',
+        path: '/subjects/10',
+        body: { notes: '**mitose**' },
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Visualizar' }));
+      expect(screen.getByText('mitose').tagName).toBe('B');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('cria tarefa vinculada, conclui e move entre projetos atualizando o progresso', async () => {
+    const user = userEvent.setup();
+    data.subjects = [{ id: 10, name: 'Biologia', color: '#A8D68B', notes: '' }];
+    data.projects = [
+      { id: 20, name: 'Projeto A', progress: 0 },
+      { id: 21, name: 'Projeto B', progress: 0 },
+    ];
+    renderApp();
+    await screen.findByRole('heading', { name: /Estudante/ });
+    await user.click(screen.getByRole('button', { name: 'Tarefas' }));
+
+    await user.type(screen.getByRole('textbox', { name: 'Tarefa' }), 'Ler capítulo');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Matéria' }), '10');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Projeto' }), '20');
+    await user.click(screen.getByRole('button', { name: 'Adicionar tarefa' }));
+
+    const checkbox = await screen.findByRole('checkbox', { name: 'Concluir tarefa: Ler capítulo' });
+    expect(data.tasks[0]).toMatchObject({ title: 'Ler capítulo', subject_id: 10, project_id: 20, done: 0 });
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Projeto de Ler capítulo' }), '21');
+    await waitFor(() => {
+      expect(data.projects[0].progress).toBe(0);
+      expect(data.projects[1].progress).toBe(0);
+    });
+
+    await user.click(checkbox);
+    await waitFor(() => expect(data.projects[1].progress).toBe(100));
+    await user.click(screen.getByRole('button', { name: 'Hoje' }));
+    const progress = screen.getByRole('progressbar', { name: 'Progresso de Projeto B' });
+    expect(progress.getAttribute('aria-valuenow')).toBe('100');
+    await user.click(screen.getByRole('button', { name: 'Tarefas' }));
+    await user.click(screen.getByRole('button', { name: 'Todas' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Reabrir tarefa: Ler capítulo' }));
+    await waitFor(() => expect(data.projects[1].progress).toBe(0));
+
+    expect(requests).toContainEqual({
+      method: 'POST',
+      path: '/tasks',
+      body: { title: 'Ler capítulo', subject_id: 10, project_id: 20, due: '' },
+    });
+  });
+
+  it('permite escolher opções do personagem pelo teclado e salvar o perfil', async () => {
+    const user = userEvent.setup();
+    renderApp();
+    await screen.findByRole('heading', { name: /Estudante/ });
+    await user.click(screen.getByRole('button', { name: 'Perfil' }));
+
+    const skin = within(screen.getByRole('radiogroup', { name: 'Pele' }));
+    const selected = skin.getByRole('radio', { name: 'Tom de pele 2' });
+    selected.focus();
+    fireEvent.keyDown(selected, { key: 'End' });
+
+    const finalSkin = skin.getByRole('radio', { name: 'Tom de pele 5' });
+    expect(finalSkin.getAttribute('aria-checked')).toBe('true');
+    expect(document.activeElement).toBe(finalSkin);
+
+    await user.click(screen.getByRole('button', { name: 'Salvar perfil' }));
+    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('Perfil salvo!'));
+    expect(requests).toContainEqual(expect.objectContaining({
+      method: 'PUT',
+      path: '/me',
+      body: expect.objectContaining({
+        username: 'Estudante',
+        character: expect.objectContaining({ skin: 4 }),
+      }),
+    }));
+  });
+
+  it('mostra ao usuário o erro de uma ação que falhou', async () => {
+    const user = userEvent.setup();
+    rejectNextMutation = 'Não foi possível plantar o projeto.';
+    renderApp();
+    await screen.findByRole('heading', { name: /Estudante/ });
+
+    await user.type(screen.getByRole('textbox', { name: 'Nome do projeto' }), 'Projeto');
+    await user.click(screen.getByRole('button', { name: 'Plantar projeto' }));
+
+    expect((await screen.findByRole('alert')).textContent).toContain('Não foi possível plantar o projeto.');
+  });
+});

@@ -1,0 +1,35 @@
+# Dependências
+node_modules/
+
+# Build do frontend
+dist/
+*.tsbuildinfo
+.vite/
+
+# Banco de dados local (SQLite)
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+
+# Segredos e variáveis de ambiente
+.env
+.env.*
+!.env.example
+.jwt-secret
+
+# Logs
+*.log
+npm-debug.log*
+
+# Sistema e editores
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Testes e cobertura
+coverage/
+.nyc_output/
+test-results/
