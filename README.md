@@ -57,12 +57,12 @@ Para validar localmente, confirme que `/api/config` retorna o client ID, abra a 
 
 ## Publicação gratuita na Vercel + Supabase
 
-O repositório inclui uma configuração inicial para publicar a interface como arquivos estáticos e a API Express como função Node na Vercel. Em produção, a API usa PostgreSQL no Supabase; SQLite permanece disponível para desenvolvimento e testes locais.
+O repositório configura dois serviços Vercel no mesmo projeto e domínio: o serviço `client` publica a interface Vite e o serviço `api` executa o Express. As requisições a `/api/*` são encaminhadas à API; as demais chegam à interface, incluindo o fallback da SPA. Em produção, a API usa PostgreSQL no Supabase; SQLite permanece disponível para desenvolvimento e testes locais.
 
 1. Crie um projeto no plano **Free** do [Supabase](https://supabase.com/dashboard). Guarde a senha do banco em local seguro.
 2. No painel do Supabase, use **Connect** e selecione o **Transaction pooler** para obter a connection string compatível com funções serverless. Substitua o marcador da senha; caracteres especiais da senha precisam estar codificados na URL.
-3. Crie/import seu repositório no GitHub e envie o commit. Na Vercel, importe o repositório e mantenha a raiz do projeto na raiz deste workspace; `vercel.json` configura o build e o roteamento da API.
-4. Nas variáveis de ambiente de produção da Vercel, configure `DATABASE_URL` com a connection string do Supabase, `JWT_SECRET` com um segredo aleatório forte, `NODE_ENV=production` e, se usar login Google, `GOOGLE_CLIENT_ID`.
+3. Envie o commit ao GitHub e importe o repositório na Vercel, mantendo a raiz como `./`. Aceite o preset `Services` se a Vercel o detectar a partir do `vercel.json`; não crie projetos separados para a interface e a API.
+4. Nas variáveis de ambiente de produção da Vercel, configure `DATABASE_URL` com a connection string do Supabase, `JWT_SECRET` com um segredo aleatório forte e `GOOGLE_CLIENT_ID` se usar login Google. A Vercel define `NODE_ENV=production` no deploy de produção.
 5. Faça o primeiro deploy. O backend cria o schema PostgreSQL na inicialização. Depois, adicione a origem HTTPS exata atribuída ao projeto (por exemplo, `https://diario-de-estudos.vercel.app`, sem curingas) nas origens JavaScript autorizadas do OAuth no Google Cloud e teste cadastro, login e dados.
 
 **Atenção ao plano gratuito:** Vercel Hobby é destinado a projetos pessoais e tem limites de uso. Projetos Supabase Free podem ser pausados após uma semana sem atividade e têm limites de banco/transferência; não incluem as mesmas garantias e backups dos planos pagos. Confirme os limites atuais nos painéis e termos da [Vercel](https://vercel.com/pricing) e do [Supabase](https://supabase.com/pricing). O deploy não deve gerar cobrança se a conta permanecer nos planos gratuitos e dentro dos limites, mas isso não é garantia permanente das plataformas.

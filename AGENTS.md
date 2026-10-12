@@ -180,8 +180,8 @@ O progresso não pode ser alterado manualmente pela API nem pela interface. É d
 ## Produção x desenvolvimento
 
 - Dev: Vite em :5173 faz proxy de `/api` para :3000 (mesmo origin para o cookie).
-- Produção: o Express serve `client/dist` e faz fallback de SPA para qualquer GET fora de `/api`.
-- Para publicar: HTTPS, `NODE_ENV=production`, `JWT_SECRET` definido, volume persistente para `estudos.db`, e a URL do site adicionada às origens autorizadas do Google.
+- Produção na Vercel: o serviço `api` encaminha `/api/*` ao Express/PostgreSQL; o serviço `client` entrega os arquivos Vite e faz fallback de SPA. Ambos compartilham o mesmo domínio e cookies.
+- Para publicar na Vercel: configure HTTPS, `DATABASE_URL` do Supabase e `JWT_SECRET`; cadastre a origem pública do site nas origens autorizadas do Google. `estudos.db` é apenas local, não usar filesystem da Vercel para persistência.
 
 ## Estado atual
 
@@ -203,7 +203,7 @@ Feito e verificado:
 - A suíte de API também testa o schema/adaptador PostgreSQL em `pg-mem`. Isso valida SQL básico e transações no emulador, mas não substitui teste de conexão, pooler, SSL e fluxo completo contra Supabase real.
 - Os testes de interface simulam a API em memória no navegador jsdom; não exigem servidor nem alteram o banco local.
 - Vitest ficou em versão corrigida após o audit apontar advisories na versão inicial; `npm audit` na raiz e no cliente retornou zero vulnerabilidades.
-- A configuração inicial Vercel + Supabase está em `vercel.json` e `api/[...path].js`. Variáveis reais, projeto Supabase, connection string, secrets, OAuth origin e teste de deploy ainda dependem de configuração manual, não executada.
+- A configuração Vercel + Supabase em `vercel.json` declara os serviços `api` (Express) e `client` (Vite) com rotas públicas no mesmo domínio. O entrypoint da API é `api/[...path].js`; o pooler, segredos, origem OAuth e deploy real ainda precisam de configuração/verificação manual.
 - Cadastro, login, logout, validações, perfil, personagem, imagem de avatar e isolamento entre usuários foram testados anteriormente.
 - Login Google: fluxo real concluído e confirmado pelo usuário em navegador em 2026-10-09; fluxo da rota também coberto por testes com verificador/token simulado (client ID, token ausente/inválido, e-mail não verificado, criação e vinculação de conta).
 - `GOOGLE_CLIENT_ID` está configurado localmente em `.env` (arquivo ignorado pelo Git); `/api/config` retorna exatamente o ID configurado. Usuário confirmou que `http://localhost:3000` e `http://localhost:5173` estão em Authorized JavaScript origins do mesmo OAuth Client.
