@@ -159,7 +159,7 @@ O progresso não pode ser alterado manualmente pela API nem pela interface. É d
 - `Tasks`: cada tarefa pode ser movida para outro projeto ou desvinculada pelo seletor de projeto na própria linha.
 - Progresso de projeto é derivado das tarefas concluídas; mudanças de conclusão, reabertura, movimentação e exclusão refletem após o reload de dados feito por `act`.
 - Desenvolvimento local usa SQLite por padrão; produção exige `DATABASE_URL` e usa PostgreSQL. A camada em `db.js` expõe operações assíncronas e transações; novas queries devem continuar limitadas por `user_id`.
-- PostgreSQL do Supabase usa schema idempotente inicializado pelo backend. Na Vercel, configurar `DATABASE_URL` com Transaction pooler; nunca expor essa URL ao cliente nem registrá-la em logs.
+- PostgreSQL do Supabase usa schema idempotente inicializado pelo backend. Na Vercel, configurar `DATABASE_URL` com Transaction pooler e `DATABASE_CA_CERT` com o certificado raiz PEM do Supabase para validar TLS; nunca expor a URL ao cliente nem registrá-la em logs.
 - `better-sqlite3` e `pg-mem` ficam em `devDependencies`; `pg` é dependência de runtime. Dados do SQLite local não são transferidos automaticamente ao Supabase.
 - `Today > ProjectRow` exibe a planta, uma barra acessível somente de leitura (`role="progressbar"`) e o percentual. Não reintroduzir slider manual.
 - Grupos de opções do personagem no perfil usam `radiogroup`/`radio`: Tab entra no valor selecionado e as setas, Home e End permitem escolher sem percorrer cada opção individualmente.

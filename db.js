@@ -51,9 +51,16 @@ function sqliteStore(raw) {
 function postgresStore(connectionString, PoolClass) {
   const pg = require('pg');
   const Pool = PoolClass || pg.Pool;
+  const url = new URL(connectionString);
+  for (const parameter of ['ssl', 'sslmode', 'sslcert', 'sslkey', 'sslrootcert']) {
+    url.searchParams.delete(parameter);
+  }
+  const ssl = process.env.DATABASE_CA_CERT
+    ? { ca: process.env.DATABASE_CA_CERT, rejectUnauthorized: true }
+    : true;
   const pool = new Pool({
-    connectionString,
-    ssl: true,
+    connectionString: url.toString(),
+    ssl,
     max: 1,
     idleTimeoutMillis: 10_000,
     connectionTimeoutMillis: 10_000,

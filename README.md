@@ -39,6 +39,7 @@ cd client && npm ci && npm run dev   # interface em http://localhost:5173
 | `GOOGLE_CLIENT_ID` | Habilita o botão "Continuar com o Google" |
 | `NODE_ENV` | Use `production` ao publicar (cookie só via HTTPS) |
 | `DATABASE_URL` | Conexão PostgreSQL; obrigatória quando `NODE_ENV=production`. Na Vercel, use a connection string do pooler em modo transaction do Supabase |
+| `DATABASE_CA_CERT` | Certificado raiz PEM do Supabase para validar a conexão TLS se a autoridade certificadora não estiver no sistema |
 | `DB_PATH` | Caminho alternativo do SQLite local; ignorado se `DATABASE_URL` estiver configurada |
 
 No desenvolvimento local, sem `DATABASE_URL`, o app mantém o SQLite em `estudos.db`. Em produção, o servidor exige PostgreSQL e não cria um banco local efêmero.
@@ -62,7 +63,7 @@ O repositório configura dois serviços Vercel no mesmo projeto e domínio: o se
 1. Crie um projeto no plano **Free** do [Supabase](https://supabase.com/dashboard). Guarde a senha do banco em local seguro.
 2. No painel do Supabase, use **Connect** e selecione o **Transaction pooler** para obter a connection string compatível com funções serverless. Substitua o marcador da senha; caracteres especiais da senha precisam estar codificados na URL.
 3. Envie o commit ao GitHub e importe o repositório na Vercel, mantendo a raiz como `./`. Aceite o preset `Services` se a Vercel o detectar a partir do `vercel.json`; não crie projetos separados para a interface e a API.
-4. Nas variáveis de ambiente de produção da Vercel, configure `DATABASE_URL` com a connection string do Supabase, `JWT_SECRET` com um segredo aleatório forte e `GOOGLE_CLIENT_ID` se usar login Google. A Vercel define `NODE_ENV=production` no deploy de produção.
+4. Nas configurações de SSL do banco no Supabase, baixe o certificado raiz e configure seu conteúdo PEM como `DATABASE_CA_CERT` na Vercel. Nas variáveis de ambiente de produção, configure também `DATABASE_URL` com a connection string do Supabase, `JWT_SECRET` com um segredo aleatório forte e `GOOGLE_CLIENT_ID` se usar login Google. A API valida o certificado do banco; não desative a validação TLS. A Vercel define `NODE_ENV=production` no deploy de produção.
 5. Faça o primeiro deploy. O backend cria o schema PostgreSQL na inicialização. Depois, adicione a origem HTTPS exata atribuída ao projeto (por exemplo, `https://diario-de-estudos.vercel.app`, sem curingas) nas origens JavaScript autorizadas do OAuth no Google Cloud e teste cadastro, login e dados.
 
 **Atenção ao plano gratuito:** Vercel Hobby é destinado a projetos pessoais e tem limites de uso. Projetos Supabase Free podem ser pausados após uma semana sem atividade e têm limites de banco/transferência; não incluem as mesmas garantias e backups dos planos pagos. Confirme os limites atuais nos painéis e termos da [Vercel](https://vercel.com/pricing) e do [Supabase](https://supabase.com/pricing). O deploy não deve gerar cobrança se a conta permanecer nos planos gratuitos e dentro dos limites, mas isso não é garantia permanente das plataformas.

@@ -63,3 +63,29 @@ test('PostgreSQL inicializa o schema, retorna IDs e mantém isolamento e progres
     await db.close();
   }
 });
+
+test('PostgreSQL preserva validação TLS ao configurar a CA do banco', async () => {
+  const memory = newDb();
+  const { Pool } = memory.adapters.createPg();
+  const originalCa = process.env.DATABASE_CA_CERT;
+  process.env.DATABASE_CA_CERT = 'test-root-certificate';
+  let poolOptions;
+  class CapturingPool extends Pool {
+    constructor(options) {
+      poolOptions = options;
+      super(options);
+    }
+  }
+
+  const db = createPostgresStore('postgresql://user:password@localhost/test?sslmode=require', CapturingPool);
+  try {
+    const connectionUrl = new URL(poolOptions.connectionString);
+    assert.equal(connectionUrl.searchParams.has('sslmode'), false);
+    assert.deepEqual(poolOptions.ssl, { ca: 'test-root-certificate', rejectUnauthorized: true });
+    await db.ready;
+  } finally {
+    await db.close();
+    if (originalCa === undefined) delete process.env.DATABASE_CA_CERT;
+    else process.env.DATABASE_CA_CERT = originalCa;
+  }
+});
