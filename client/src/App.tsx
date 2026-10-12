@@ -32,14 +32,21 @@ function useData() {
 
   useEffect(() => { reload(); }, [reload]);
 
-  const act = useCallback(async (f: () => Promise<unknown>) => {
+  const act = useCallback(async (
+    f: () => Promise<unknown>,
+    optimistic?: (data: AllData) => AllData,
+    reconcile?: (data: AllData, result: unknown) => AllData,
+  ) => {
+    if (optimistic) setD(optimistic);
     try {
-      await f();
+      const result = await f();
       setActionError('');
+      if (reconcile) setD((current) => reconcile(current, result));
     } catch (e) {
       setActionError(e instanceof Error ? e.message : 'Não foi possível concluir a ação. Tente novamente.');
+      await reload();
     }
-    await reload();
+    if (!optimistic) await reload();
   }, [reload]);
 
   return { d, offline, actionError, setActionError, act };

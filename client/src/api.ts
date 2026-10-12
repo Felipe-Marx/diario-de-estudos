@@ -14,7 +14,21 @@ export interface AllData {
   subjects: Subject[]; tasks: Task[]; projects: Project[];
   sessions: Record<string, number>;
 }
-export type Act = (f: () => Promise<unknown>) => Promise<void>;
+export type Act = (
+  f: () => Promise<unknown>,
+  optimistic?: (data: AllData) => AllData,
+  reconcile?: (data: AllData, result: unknown) => AllData,
+) => Promise<void>;
+
+export function updateTasks(data: AllData, change: (tasks: Task[]) => Task[]): AllData {
+  const tasks = change(data.tasks);
+  const projects = data.projects.map((project) => {
+    const linked = tasks.filter((task) => task.project_id === project.id);
+    const done = linked.filter((task) => task.done).length;
+    return { ...project, progress: linked.length ? Math.round(done / linked.length * 100) : 0 };
+  });
+  return { ...data, tasks, projects };
+}
 
 export class ApiError extends Error {
   status: number;

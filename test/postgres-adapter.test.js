@@ -7,6 +7,7 @@ const { createPostgresStore } = require('../db');
 
 test('PostgreSQL inicializa o schema, retorna IDs e mantém isolamento e progresso transacional', async () => {
   const memory = newDb({ autoCreateForeignKeyIndices: true });
+  memory.public.registerFunction({ name: 'floor', args: ['float'], returns: 'integer', implementation: Math.floor });
   const { Pool } = memory.adapters.createPg();
   const db = createPostgresStore('postgres://test:test@localhost/test', Pool);
 
@@ -28,29 +29,43 @@ test('PostgreSQL inicializa o schema, retorna IDs e mantém isolamento e progres
     assert.ok(other.lastInsertRowid);
 
     const project = await db.run('INSERT INTO projects (name, user_id) VALUES (?, ?)', 'Projeto', owner.lastInsertRowid);
+    const subject = await db.run('INSERT INTO subjects (name, color, user_id) VALUES (?, ?, ?)', 'Matéria', '#A8D68B', owner.lastInsertRowid);
     const task = await db.run(
-      'INSERT INTO tasks (title, project_id, user_id) VALUES (?, ?, ?)',
+      `INSERT INTO tasks (title, subject_id, project_id, due, user_id)
+        VALUES (
+          ?,
+          (SELECT id FROM subjects WHERE id = ? AND user_id = ?),
+          (SELECT id FROM projects WHERE id = ? AND user_id = ?),
+          ?,
+          ?
+        )`,
       'Etapa',
+      subject.lastInsertRowid,
+      owner.lastInsertRowid,
       project.lastInsertRowid,
+      owner.lastInsertRowid,
+      '',
       owner.lastInsertRowid,
     );
     assert.ok(task.lastInsertRowid);
 
     await db.transaction(async (tx) => {
-      await tx.run('UPDATE tasks SET done = ? WHERE id = ? AND user_id = ?', 1, task.lastInsertRowid, owner.lastInsertRowid);
-      const { total, done } = await tx.get(
-        'SELECT COUNT(*) AS total, COALESCE(SUM(done), 0) AS done FROM tasks WHERE user_id = ? AND project_id = ?',
-        owner.lastInsertRowid,
-        project.lastInsertRowid,
-      );
-      assert.equal(total, 1);
-      assert.equal(done, 1);
-      await tx.run(
-        'UPDATE projects SET progress = ? WHERE id = ? AND user_id = ?',
-        Math.round(done / total * 100),
-        project.lastInsertRowid,
+      const updated = await tx.get(
+        'UPDATE tasks SET done = ? WHERE id = ? AND user_id = ? RETURNING project_id',
+        1,
+        task.lastInsertRowid,
         owner.lastInsertRowid,
       );
+      assert.equal(updated.project_id, project.lastInsertRowid);
+      await tx.run(`
+        UPDATE projects
+        SET progress = (
+          SELECT CASE WHEN COUNT(*) = 0 THEN 0
+            ELSE FLOOR(SUM(done) * 100.0 / COUNT(*) + 0.5) END
+          FROM tasks WHERE user_id = ? AND project_id = ?
+        )
+        WHERE id = ? AND user_id = ?
+      `, owner.lastInsertRowid, project.lastInsertRowid, project.lastInsertRowid, owner.lastInsertRowid);
     });
 
     assert.equal(
@@ -71,6 +86,21 @@ test('PostgreSQL inicializa o schema, retorna IDs e mantém isolamento e progres
     assert.equal(Math.round(Number(summaries.find((row) => row.id === project.lastInsertRowid).progress)), 100);
     assert.equal(Math.round(Number(summaries.find((row) => row.id === emptyProject.lastInsertRowid).progress)), 0);
     assert.equal(await db.get('SELECT id FROM projects WHERE id = ? AND user_id = ?', project.lastInsertRowid, other.lastInsertRowid), undefined);
+    const deleted = await db.get('DELETE FROM tasks WHERE id = ? AND user_id = ? RETURNING project_id', task.lastInsertRowid, owner.lastInsertRowid);
+    assert.equal(deleted.project_id, project.lastInsertRowid);
+    await db.run(`
+      UPDATE projects
+      SET progress = (
+        SELECT CASE WHEN COUNT(*) = 0 THEN 0
+          ELSE FLOOR(SUM(done) * 100.0 / COUNT(*) + 0.5) END
+        FROM tasks WHERE user_id = ? AND project_id = ?
+      )
+      WHERE id = ? AND user_id = ?
+    `, owner.lastInsertRowid, deleted.project_id, deleted.project_id, owner.lastInsertRowid);
+    assert.equal(
+      (await db.get('SELECT progress FROM projects WHERE id = ? AND user_id = ?', project.lastInsertRowid, owner.lastInsertRowid)).progress,
+      0,
+    );
 
   } finally {
     await db.close();

@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { api, type Act, type Project, type Subject, type Task } from '../api';
+import { api, type Act, type AllData, type Project, type Subject, type Task, updateTasks } from '../api';
 import { byDue, fmt, today } from '../lib';
 
 export default function Tasks({ tasks, subjects, projects, act }: { tasks: Task[]; subjects: Subject[]; projects: Project[]; act: Act }) {
@@ -8,16 +8,51 @@ export default function Tasks({ tasks, subjects, projects, act }: { tasks: Task[
   const [sid, setSid] = useState('');
   const [pid, setPid] = useState('');
   const [due, setDue] = useState('');
+  const [pending, setPending] = useState<Set<number>>(() => new Set());
   const input = useRef<HTMLInputElement>(null);
+  const temporaryId = useRef(-1);
   const list = tasks.filter((t) => filter === 'all' || !t.done).sort(byDue);
   const subj = (id: number | null) => subjects.find((s) => s.id === id);
   const proj = (id: number | null) => projects.find((p) => p.id === id);
 
+  const runTaskAction = (id: number, action: () => Promise<unknown>, optimistic: (data: AllData) => AllData,
+    reconcile?: (data: AllData, result: unknown) => AllData) => {
+    setPending((current) => new Set(current).add(id));
+    void act(action, optimistic, reconcile).finally(() => {
+      setPending((current) => {
+        const next = new Set(current);
+        next.delete(id);
+        return next;
+      });
+    });
+  };
+
   const add = () => {
     const t = title.trim();
     if (!t) return input.current?.focus();
+    const id = temporaryId.current--;
+    const newTask: Task = {
+      id,
+      title: t,
+      subject_id: sid ? +sid : null,
+      project_id: pid ? +pid : null,
+      due,
+      done: 0,
+    };
     setTitle('');
-    act(() => api('POST', '/tasks', { title: t, subject_id: sid ? +sid : null, project_id: pid ? +pid : null, due }));
+    runTaskAction(id,
+      () => api<{ id: number }>('POST', '/tasks', {
+        title: t,
+        subject_id: newTask.subject_id,
+        project_id: newTask.project_id,
+        due,
+      }),
+      (data) => updateTasks(data, (current) => [...current, newTask]),
+      (data, result) => {
+        if (!result || typeof result !== 'object' || !('id' in result) || typeof result.id !== 'number') return data;
+        const serverId = result.id;
+        return updateTasks(data, (current) => current.map((task) => task.id === id ? { ...task, id: serverId } : task));
+      });
     input.current?.focus();
   };
 
@@ -51,19 +86,34 @@ export default function Tasks({ tasks, subjects, projects, act }: { tasks: Task[
               <li key={t.id} className={t.done ? 'dn' : ''}>
                 <input type="checkbox" checked={!!t.done}
                   aria-label={`${t.done ? 'Reabrir' : 'Concluir'} tarefa: ${t.title}`}
-                  onChange={() => act(() => api('PATCH', '/tasks/' + t.id, { done: !t.done }))} />
+                  disabled={pending.has(t.id) || t.id < 0}
+                  onChange={() => runTaskAction(t.id,
+                    () => api('PATCH', '/tasks/' + t.id, { done: !t.done }),
+                    (data) => updateTasks(data, (current) => current.map((task) =>
+                      task.id === t.id ? { ...task, done: Number(!t.done) } : task)))}
+                />
                 <span className="tx">{t.title}</span>
                 {s && <span className="meta"><i className="d" style={{ background: s.color }} />{s.name}</span>}
                 {p && <span className="meta">Projeto: {p.name}</span>}
                 {t.due && <span className={'meta' + (late ? ' late' : '')}>{late ? 'atrasada ' : ''}{fmt(t.due)}</span>}
                 {projects.length > 0 && (
-                  <select value={t.project_id ?? ''} aria-label={'Projeto de ' + t.title}
-                    onChange={(e) => act(() => api('PATCH', '/tasks/' + t.id, { project_id: e.target.value ? +e.target.value : null }))}>
+                  <select value={t.project_id ?? ''} aria-label={'Projeto de ' + t.title} disabled={pending.has(t.id) || t.id < 0}
+                    onChange={(e) => {
+                      const projectId = e.target.value ? +e.target.value : null;
+                      runTaskAction(t.id,
+                        () => api('PATCH', '/tasks/' + t.id, { project_id: projectId }),
+                        (data) => updateTasks(data, (current) => current.map((task) =>
+                          task.id === t.id ? { ...task, project_id: projectId } : task)));
+                    }}>
                     <option value="">Sem projeto</option>
                     {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
                   </select>
                 )}
-                <button onClick={() => act(() => api('DELETE', '/tasks/' + t.id))}>Excluir</button>
+                <button disabled={pending.has(t.id) || t.id < 0} onClick={() => runTaskAction(t.id,
+                  () => api('DELETE', '/tasks/' + t.id),
+                  (data) => updateTasks(data, (current) => current.filter((task) => task.id !== t.id)))}>
+                  Excluir
+                </button>
               </li>
             );
           })}

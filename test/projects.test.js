@@ -9,7 +9,7 @@ const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'diario-projects-'));
 process.env.DB_PATH = path.join(tempDir, 'test.db');
 process.env.JWT_SECRET = 'test-secret-not-used-outside-tests';
 
-const { app, db } = require('../server');
+const { app, db, database } = require('../server');
 let server;
 let baseUrl;
 
@@ -75,6 +75,42 @@ async function all(cookie) {
 
 function progress(data, projectId) {
   return data.projects.find((project) => project.id === projectId).progress;
+}
+
+async function countQueries(operation) {
+  const statements = [];
+  const original = {
+    get: database.get,
+    all: database.all,
+    run: database.run,
+    transaction: database.transaction,
+  };
+  for (const method of ['get', 'all', 'run']) {
+    database[method] = async (sql, ...params) => {
+      statements.push(sql);
+      return original[method](sql, ...params);
+    };
+  }
+  database.transaction = (callback) => original.transaction((query) => callback({
+    get: async (sql, ...params) => {
+      statements.push(sql);
+      return query.get(sql, ...params);
+    },
+    all: async (sql, ...params) => {
+      statements.push(sql);
+      return query.all(sql, ...params);
+    },
+    run: async (sql, ...params) => {
+      statements.push(sql);
+      return query.run(sql, ...params);
+    },
+  }));
+  try {
+    await operation();
+    return statements;
+  } finally {
+    Object.assign(database, original);
+  }
 }
 
 test('calcula progresso ao criar, concluir, reabrir, mover e excluir tarefas', async () => {
@@ -149,4 +185,70 @@ test('calcula progresso ao criar, concluir, reabrir, mover e excluir tarefas', a
   data = await all(owner);
   assert.equal(data.projects.some((project) => project.id === deletedProject), false);
   assert.equal(data.tasks.find((task) => task.id === detachedTask).project_id, null);
+});
+
+test('reduz consultas sequenciais nas rotas de criar, concluir e excluir tarefa', async () => {
+  const cookie = await register('consultas@exemplo.test');
+  const projectId = await createProject(cookie, 'Projeto de consultas');
+  const destinationProjectId = await createProject(cookie, 'Projeto de destino');
+  let taskId;
+
+  const createQueries = await countQueries(async () => {
+    const { response, data } = await request('/api/tasks', {
+      cookie,
+      method: 'POST',
+      body: { title: 'Etapa medida', project_id: projectId },
+    });
+    assert.equal(response.status, 201);
+    taskId = data.id;
+  });
+  assert.equal(createQueries.length, 3);
+
+  const patchQueries = await countQueries(async () => {
+    const { response } = await request(`/api/tasks/${taskId}`, {
+      cookie,
+      method: 'PATCH',
+      body: { done: true },
+    });
+    assert.equal(response.status, 200);
+  });
+  assert.equal(patchQueries.length, 3);
+
+  const moveQueries = await countQueries(async () => {
+    const { response } = await request(`/api/tasks/${taskId}`, {
+      cookie,
+      method: 'PATCH',
+      body: { project_id: destinationProjectId },
+    });
+    assert.equal(response.status, 200);
+  });
+  assert.equal(moveQueries.length, 5);
+
+  const deleteQueries = await countQueries(async () => {
+    const { response } = await request(`/api/tasks/${taskId}`, { cookie, method: 'DELETE' });
+    assert.equal(response.status, 200);
+  });
+  assert.equal(deleteQueries.length, 3);
+
+  let unlinkedTaskId;
+  const unlinkedCreateQueries = await countQueries(async () => {
+    const { response, data } = await request('/api/tasks', {
+      cookie,
+      method: 'POST',
+      body: { title: 'Etapa sem projeto' },
+    });
+    assert.equal(response.status, 201);
+    unlinkedTaskId = data.id;
+  });
+  assert.equal(unlinkedCreateQueries.length, 2);
+
+  const unlinkedPatchQueries = await countQueries(async () => {
+    const { response } = await request(`/api/tasks/${unlinkedTaskId}`, {
+      cookie,
+      method: 'PATCH',
+      body: { done: true },
+    });
+    assert.equal(response.status, 200);
+  });
+  assert.equal(unlinkedPatchQueries.length, 2);
 });

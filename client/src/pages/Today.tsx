@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { api, type Act, type AllData, type Project } from '../api';
+import { api, type Act, type AllData, type Project, updateTasks } from '../api';
 import { byDue, fmt, loc, today } from '../lib';
 import { Pix, stage } from '../pixel';
 import { mmss, type Timer } from '../timer';
@@ -81,7 +81,11 @@ export default function Today({ d, act, t }: { d: AllData; act: Act; t: Timer })
                 return (
                   <li key={x.id}>
                     <input type="checkbox" aria-label={'Concluir tarefa: ' + x.title}
-                      onChange={() => act(() => api('PATCH', '/tasks/' + x.id, { done: true }))} />
+                      onChange={() => act(
+                        () => api('PATCH', '/tasks/' + x.id, { done: true }),
+                        (data) => updateTasks(data, (tasks) => tasks.map((task) =>
+                          task.id === x.id ? { ...task, done: 1 } : task)),
+                      )} />
                     <span className="tx">{x.title}</span>
                     {subj(x.subject_id) && <span className="meta"><i className="d" style={{ background: subj(x.subject_id)!.color }} />{subj(x.subject_id)!.name}</span>}
                     {p && <span className="meta">Projeto: {p.name}</span>}

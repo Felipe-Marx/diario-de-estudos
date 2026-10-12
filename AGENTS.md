@@ -152,12 +152,13 @@ O progresso não pode ser alterado manualmente pela API nem pela interface. É d
 
 ## Convenções do frontend
 
-- **Padrão de mutação:** `act(() => api(...))` executa a chamada e depois recarrega `/api/all` inteiro (`useData` em `App.tsx`). Não há cache otimista. Mantenha esse padrão.
+- **Padrão de mutação:** `act(() => api(...))` executa a chamada e depois recarrega `/api/all` inteiro (`useData` em `App.tsx`). Para tarefas, passe também uma atualização otimista de `AllData`: a interface atualiza imediatamente, sem recarga após sucesso; em falha, recarrega os dados do servidor e mostra o alerta padrão. Ao mudar tarefas vinculadas, recalcule também o progresso otimista do projeto.
 - O estado do timer vive no `Shell` (`useTimer`), para continuar rodando ao trocar de aba. Minutos focados são gravados ao pausar ou concluir um ciclo, em minutos inteiros acumulados; `POST /sessions` usa o dia **local** (`today()` de `lib.ts`).
 - `Subjects`: autosave das notas com debounce de 600 ms. O `useEffect` que sincroniza `notes` depende só de `s?.id` de propósito (evita sobrescrever o que o usuário está digitando).
 - `Tasks`: criação aceita matéria, projeto e prazo; a lista indica o projeto vinculado. A tela Hoje também mostra o projeto nas próximas tarefas.
 - `Tasks`: cada tarefa pode ser movida para outro projeto ou desvinculada pelo seletor de projeto na própria linha.
-- Progresso de projeto é derivado das tarefas concluídas; mudanças de conclusão, reabertura, movimentação e exclusão refletem após o reload de dados feito por `act`.
+- Progresso de projeto é derivado das tarefas concluídas; mudanças de conclusão, reabertura, movimentação e exclusão atualizam o percentual otimisticamente e revertem ao estado do servidor se a mutação falhar.
+- Nas rotas de tarefa, valide matéria/projeto dentro da instrução de gravação; recalcule em uma única instrução o progresso dos projetos afetados. Mantenha a compatibilidade SQL com SQLite e PostgreSQL.
 - Desenvolvimento local usa SQLite por padrão; produção exige `DATABASE_URL` e usa PostgreSQL. A camada em `db.js` expõe operações assíncronas e transações; novas queries devem continuar limitadas por `user_id`.
 - PostgreSQL do Supabase usa schema idempotente inicializado pelo backend. Na Vercel, configurar `DATABASE_URL` com Transaction pooler e `DATABASE_CA_CERT` com o certificado raiz PEM do Supabase para validar TLS; nunca expor a URL ao cliente nem registrá-la em logs.
 - `better-sqlite3` e `pg-mem` ficam em `devDependencies`; `pg` é dependência de runtime. Dados do SQLite local não são transferidos automaticamente ao Supabase.

@@ -20,6 +20,7 @@ let data: AllData;
 let currentUser: User;
 let requests: Array<{ method: string; path: string; body: unknown }>;
 let rejectNextMutation: string | null;
+let nextTaskMutationGate: Promise<void> | null;
 
 function response(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -45,6 +46,7 @@ beforeEach(() => {
   data = { subjects: [], tasks: [], projects: [], sessions: {} };
   requests = [];
   rejectNextMutation = null;
+  nextTaskMutationGate = null;
 
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = String(input).replace('/api', '');
@@ -56,6 +58,11 @@ beforeEach(() => {
       const message = rejectNextMutation;
       rejectNextMutation = null;
       return response({ error: message }, 400);
+    }
+    if (path.startsWith('/tasks') && nextTaskMutationGate) {
+      const gate = nextTaskMutationGate;
+      nextTaskMutationGate = null;
+      await gate;
     }
 
     if (method === 'GET' && path === '/me') return response(currentUser);
@@ -78,16 +85,17 @@ beforeEach(() => {
       return response({});
     }
     if (method === 'POST' && path === '/tasks') {
-      data.tasks.push({
+      const task = {
         id: Date.now(),
         title: String(body.title),
         subject_id: typeof body.subject_id === 'number' ? body.subject_id : null,
         project_id: typeof body.project_id === 'number' ? body.project_id : null,
         due: String(body.due ?? ''),
         done: 0,
-      });
+      };
+      data.tasks.push(task);
       recalculateProgress();
-      return response({});
+      return response({ id: task.id });
     }
     if (method === 'PATCH' && path.startsWith('/tasks/')) {
       const id = Number(path.split('/').pop());
@@ -100,6 +108,12 @@ beforeEach(() => {
               : {}),
           }
         : task);
+      recalculateProgress();
+      return response({});
+    }
+    if (method === 'DELETE' && path.startsWith('/tasks/')) {
+      const id = Number(path.split('/').pop());
+      data.tasks = data.tasks.filter((task) => task.id !== id);
       recalculateProgress();
       return response({});
     }
@@ -224,6 +238,60 @@ describe('fluxos principais da interface', () => {
       path: '/tasks',
       body: { title: 'Ler capítulo', subject_id: 10, project_id: 20, due: '' },
     });
+  });
+
+  it('mostra uma tarefa imediatamente enquanto a API ainda está respondendo', async () => {
+    const user = userEvent.setup();
+    let releaseMutation: (() => void) | undefined;
+    nextTaskMutationGate = new Promise<void>((resolve) => { releaseMutation = resolve; });
+    renderApp();
+    await screen.findByRole('heading', { name: /Estudante/ });
+    await user.click(screen.getByRole('button', { name: 'Tarefas' }));
+    await user.type(screen.getByRole('textbox', { name: 'Tarefa' }), 'Revisar anotações');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Adicionar tarefa' }));
+
+    expect(screen.getByRole('checkbox', { name: 'Concluir tarefa: Revisar anotações' })).not.toBeNull();
+    expect(data.tasks).toHaveLength(0);
+    expect(requests.filter((request) => request.method === 'GET' && request.path === '/all')).toHaveLength(1);
+
+    await act(async () => { releaseMutation?.(); });
+    await waitFor(() => expect(data.tasks).toHaveLength(1));
+    expect(screen.getByRole('checkbox', { name: 'Concluir tarefa: Revisar anotações' })).not.toBeNull();
+    expect(requests.filter((request) => request.method === 'GET' && request.path === '/all')).toHaveLength(1);
+  });
+
+  it('atualiza conclusão e progresso do projeto imediatamente na aba Hoje', async () => {
+    data.tasks = [{ id: 30, title: 'Ler resumo', subject_id: null, project_id: 20, due: '', done: 0 }];
+    data.projects = [{ id: 20, name: 'Projeto de leitura', progress: 0 }];
+    let releaseMutation: (() => void) | undefined;
+    nextTaskMutationGate = new Promise<void>((resolve) => { releaseMutation = resolve; });
+    renderApp();
+    await screen.findByRole('heading', { name: /Estudante/ });
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Concluir tarefa: Ler resumo' }));
+
+    expect(screen.getByText('Nada pendente por enquanto. Respire fundo e aproveite o dia.')).not.toBeNull();
+    expect(screen.getByRole('progressbar', { name: 'Progresso de Projeto de leitura' }).getAttribute('aria-valuenow')).toBe('100');
+    expect(data.tasks[0].done).toBe(0);
+
+    await act(async () => { releaseMutation?.(); });
+    await waitFor(() => expect(data.tasks[0].done).toBe(1));
+  });
+
+  it('reverte uma tarefa otimista e mostra o erro se a API rejeitar a criação', async () => {
+    const user = userEvent.setup();
+    rejectNextMutation = 'Falha ao criar tarefa.';
+    renderApp();
+    await screen.findByRole('heading', { name: /Estudante/ });
+    await user.click(screen.getByRole('button', { name: 'Tarefas' }));
+    await user.type(screen.getByRole('textbox', { name: 'Tarefa' }), 'Tarefa que vai falhar');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Adicionar tarefa' }));
+    expect(screen.getByRole('checkbox', { name: 'Concluir tarefa: Tarefa que vai falhar' })).not.toBeNull();
+
+    expect((await screen.findByRole('alert')).textContent).toContain('Falha ao criar tarefa.');
+    await waitFor(() => expect(screen.queryByRole('checkbox', { name: 'Concluir tarefa: Tarefa que vai falhar' })).toBeNull());
   });
 
   it('permite escolher opções do personagem pelo teclado e salvar o perfil', async () => {

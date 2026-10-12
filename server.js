@@ -62,17 +62,19 @@ const pub = (u) => ({
   hasPassword: !!u.password_hash,
 });
 
-async function refreshProjectProgress(query, uid, projectId) {
-  const project = await query.get('SELECT id FROM projects WHERE id = ? AND user_id = ?', projectId, uid);
-  if (!project) return;
-  const counts = await query.get(`
-    SELECT COUNT(*) AS total, COALESCE(SUM(done), 0) AS done
-    FROM tasks WHERE user_id = ? AND project_id = ?
-  `, uid, projectId);
-  const total = Number(counts.total);
-  const done = Number(counts.done);
-  const pct = total ? Math.round((done / total) * 100) : 0;
-  await query.run('UPDATE projects SET progress = ? WHERE id = ? AND user_id = ?', pct, projectId, uid);
+async function refreshProjectProgress(query, uid, projectIds) {
+  const ids = [...new Set(projectIds.filter((id) => Number.isInteger(Number(id)) && Number(id) > 0).map(Number))];
+  for (const projectId of ids) {
+    await query.run(`
+      UPDATE projects
+      SET progress = (
+        SELECT CASE WHEN COUNT(*) = 0 THEN 0
+          ELSE FLOOR(SUM(done) * 100.0 / COUNT(*) + 0.5) END
+        FROM tasks WHERE user_id = ? AND project_id = ?
+      )
+      WHERE id = ? AND user_id = ?
+    `, uid, projectId, projectId, uid);
+  }
 }
 
 async function onNewUser(uid) {
@@ -272,26 +274,26 @@ app.delete('/api/subjects/:id', asyncRoute(async (req, res) => {
 app.post('/api/tasks', asyncRoute(async (req, res) => {
   const title = str(req.body.title, 120);
   if (!title) return bad(res, 'Título obrigatório');
-  const sid = (await db.get('SELECT id FROM subjects WHERE id = ? AND user_id = ?', Number(req.body.subject_id) || 0, req.user.id))?.id ?? null;
+  const sid = Number(req.body.subject_id) || 0;
   const pid = Number(req.body.project_id) || 0;
-  const projectId = pid && (await db.get('SELECT id FROM projects WHERE id = ? AND user_id = ?', pid, req.user.id))?.id ? pid : null;
   const due = isDay(req.body.due) ? req.body.due : '';
   const r = await db.transaction(async (query) => {
-    const result = await query.run('INSERT INTO tasks (title, subject_id, project_id, due, user_id) VALUES (?, ?, ?, ?, ?)',
-      title, sid, projectId, due, req.user.id);
-    if (projectId) await refreshProjectProgress(query, req.user.id, projectId);
+    const result = await query.run(`
+      INSERT INTO tasks (title, subject_id, project_id, due, user_id)
+      VALUES (
+        ?,
+        (SELECT id FROM subjects WHERE id = ? AND user_id = ?),
+        (SELECT id FROM projects WHERE id = ? AND user_id = ?),
+        ?,
+        ?
+      )
+    `, title, sid, req.user.id, pid, req.user.id, due, req.user.id);
+    if (pid) await refreshProjectProgress(query, req.user.id, [pid]);
     return result;
   });
   res.status(201).json({ id: r.lastInsertRowid });
 }));
 app.patch('/api/tasks/:id', asyncRoute(async (req, res) => {
-  const existing = await db.get('SELECT project_id FROM tasks WHERE id = ? AND user_id = ?', req.params.id, req.user.id);
-  if (!existing) return bad(res, 'Tarefa não encontrada', 404);
-  const pid = req.body.project_id === undefined
-    ? existing.project_id
-    : (req.body.project_id === null
-      ? null
-      : ((await db.get('SELECT id FROM projects WHERE id = ? AND user_id = ?', Number(req.body.project_id) || 0, req.user.id))?.id ?? null));
   const done = req.body.done === undefined ? undefined : Number(Boolean(req.body.done));
   const updates = [];
   const values = [];
@@ -300,22 +302,40 @@ app.patch('/api/tasks/:id', asyncRoute(async (req, res) => {
     values.push(done);
   }
   if (req.body.project_id !== undefined) {
-    updates.push('project_id = ?');
-    values.push(pid);
+    if (req.body.project_id === null) {
+      updates.push('project_id = NULL');
+    } else {
+      updates.push('project_id = (SELECT id FROM projects WHERE id = ? AND user_id = ?)');
+      values.push(Number(req.body.project_id) || 0, req.user.id);
+    }
   }
   if (!updates.length) return res.json({ ok: true });
-  await db.transaction(async (query) => {
-    await query.run(`UPDATE tasks SET ${updates.join(', ')} WHERE id = ? AND user_id = ?`, ...values, req.params.id, req.user.id);
-    const affected = new Set([existing.project_id, pid].filter(Boolean));
-    for (const projectId of affected) await refreshProjectProgress(query, req.user.id, projectId);
+  const updated = await db.transaction(async (query) => {
+    let previousProjectId = null;
+    if (req.body.project_id !== undefined) {
+      const existing = await query.get('SELECT project_id FROM tasks WHERE id = ? AND user_id = ?', req.params.id, req.user.id);
+      if (!existing) return false;
+      previousProjectId = existing.project_id;
+    }
+    const result = await query.get(`
+      UPDATE tasks SET ${updates.join(', ')}
+      WHERE id = ? AND user_id = ?
+      RETURNING project_id
+    `, ...values, req.params.id, req.user.id);
+    if (!result) return false;
+    const affectedProjectIds = req.body.project_id === undefined
+      ? [result.project_id]
+      : [previousProjectId, result.project_id];
+    await refreshProjectProgress(query, req.user.id, affectedProjectIds);
+    return true;
   });
+  if (!updated) return bad(res, 'Tarefa não encontrada', 404);
   res.json({ ok: true });
 }));
 app.delete('/api/tasks/:id', asyncRoute(async (req, res) => {
   await db.transaction(async (query) => {
-    const task = await query.get('SELECT project_id FROM tasks WHERE id = ? AND user_id = ?', req.params.id, req.user.id);
-    await query.run('DELETE FROM tasks WHERE id = ? AND user_id = ?', req.params.id, req.user.id);
-    if (task && task.project_id) await refreshProjectProgress(query, req.user.id, task.project_id);
+    const task = await query.get('DELETE FROM tasks WHERE id = ? AND user_id = ? RETURNING project_id', req.params.id, req.user.id);
+    if (task?.project_id) await refreshProjectProgress(query, req.user.id, [task.project_id]);
   });
   res.json({ ok: true });
 }));
