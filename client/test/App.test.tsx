@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../src/App';
 import { AuthProvider } from '../src/auth';
 import type { AllData, User } from '../src/api';
+import { today } from '../src/lib';
 
 const user: User = {
   id: 1,
@@ -60,6 +61,11 @@ beforeEach(() => {
     if (method === 'GET' && path === '/me') return response(currentUser);
     if (method === 'GET' && path === '/all') return response(data);
     if (method === 'POST' && path === '/auth/logout') return response({});
+    if (method === 'POST' && path === '/sessions') {
+      const day = String(body.day);
+      data.sessions[day] = (data.sessions[day] || 0) + Number(body.minutes);
+      return response({});
+    }
     if (method === 'POST' && path === '/subjects') {
       const subject = { id: Date.now(), name: String(body.name), color: '#A8D68B', notes: '' };
       data.subjects.push(subject);
@@ -125,6 +131,31 @@ describe('fluxos principais da interface', () => {
       path: '/subjects',
       body: { name: 'Cálculo' },
     });
+  });
+
+  it('registra os minutos focados ao pausar e atualiza o total do dia', async () => {
+    renderApp();
+    await screen.findByRole('heading', { name: /Estudante/ });
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(screen.getByRole('button', { name: 'Iniciar' }));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3 * 60 * 1000);
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Pausar' }));
+      vi.useRealTimers();
+
+      await waitFor(() => {
+        expect(requests).toContainEqual({
+          method: 'POST',
+          path: '/sessions',
+          body: { minutes: 3, day: today() },
+        });
+      });
+      expect(screen.getByText('3', { selector: 'p.big' })).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('salva notas após o debounce e permite visualizar Markdown', async () => {

@@ -153,7 +153,7 @@ O progresso não pode ser alterado manualmente pela API nem pela interface. É d
 ## Convenções do frontend
 
 - **Padrão de mutação:** `act(() => api(...))` executa a chamada e depois recarrega `/api/all` inteiro (`useData` em `App.tsx`). Não há cache otimista. Mantenha esse padrão.
-- O estado do timer vive no `Shell` (`useTimer`), para continuar rodando ao trocar de aba. Ao terminar um foco de 25 min, grava `POST /sessions` com o dia **local** (`today()` de `lib.ts`).
+- O estado do timer vive no `Shell` (`useTimer`), para continuar rodando ao trocar de aba. Minutos focados são gravados ao pausar ou concluir um ciclo, em minutos inteiros acumulados; `POST /sessions` usa o dia **local** (`today()` de `lib.ts`).
 - `Subjects`: autosave das notas com debounce de 600 ms. O `useEffect` que sincroniza `notes` depende só de `s?.id` de propósito (evita sobrescrever o que o usuário está digitando).
 - `Tasks`: criação aceita matéria, projeto e prazo; a lista indica o projeto vinculado. A tela Hoje também mostra o projeto nas próximas tarefas.
 - `Tasks`: cada tarefa pode ser movida para outro projeto ou desvinculada pelo seletor de projeto na própria linha.

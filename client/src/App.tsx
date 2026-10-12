@@ -48,7 +48,7 @@ function useData() {
 function Shell({ user }: { user: User }) {
   const [tab, setTab] = useState<Tab>('hoje');
   const { d, offline, actionError, setActionError, act } = useData();
-  const timer = useTimer(() => { act(() => api('POST', '/sessions', { minutes: 25, day: today() })); });
+  const timer = useTimer((minutes) => { act(() => api('POST', '/sessions', { minutes, day: today() })); });
 
   const h = new Date().getHours();
   const greeting = h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite';
