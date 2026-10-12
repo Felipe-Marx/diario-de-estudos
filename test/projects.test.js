@@ -90,6 +90,7 @@ test('calcula progresso ao criar, concluir, reabrir, mover e excluir tarefas', a
   const first = await createTask(owner, 'Primeira etapa', alpha);
   const second = await createTask(owner, 'Segunda etapa', alpha);
 
+  db.prepare('UPDATE projects SET progress = 99 WHERE id = ?').run(alpha);
   assert.equal(progress(await all(owner), alpha), 0);
 
   await request(`/api/tasks/${first}`, { cookie: owner, method: 'PATCH', body: { done: true } });

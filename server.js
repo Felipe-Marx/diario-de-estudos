@@ -227,13 +227,20 @@ app.get('/api/all', asyncRoute(async (req, res) => {
   const cutoff = new Date(Date.now() - 10 * 864e5).toISOString().slice(0, 10);
   (await db.all('SELECT day, SUM(minutes) AS m FROM sessions WHERE user_id = ? AND day >= ? GROUP BY day', uid, cutoff))
     .forEach((r) => (sessions[r.day] = Number(r.m)));
-  for (const project of await db.all('SELECT id FROM projects WHERE user_id = ?', uid)) {
-    await refreshProjectProgress(db, uid, project.id);
-  }
+  const projects = await db.all(`
+    SELECT p.id, p.name,
+      CASE WHEN COUNT(t.id) = 0 THEN 0
+      ELSE SUM(t.done) * 100.0 / COUNT(t.id) END AS progress
+    FROM projects p
+    LEFT JOIN tasks t ON t.project_id = p.id AND t.user_id = p.user_id
+    WHERE p.user_id = ?
+    GROUP BY p.id, p.name
+    ORDER BY p.id
+  `, uid);
   res.json({
     subjects: await db.all('SELECT id, name, color, notes FROM subjects WHERE user_id = ? ORDER BY id', uid),
     tasks: await db.all('SELECT id, title, subject_id, project_id, due, done FROM tasks WHERE user_id = ? ORDER BY id', uid),
-    projects: await db.all('SELECT id, name, progress FROM projects WHERE user_id = ? ORDER BY id', uid),
+    projects: projects.map((project) => ({ ...project, progress: Math.round(Number(project.progress)) })),
     sessions,
   });
 }));

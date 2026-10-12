@@ -57,6 +57,19 @@ test('PostgreSQL inicializa o schema, retorna IDs e mantém isolamento e progres
       (await db.get('SELECT progress FROM projects WHERE id = ? AND user_id = ?', project.lastInsertRowid, owner.lastInsertRowid)).progress,
       100,
     );
+    const emptyProject = await db.run('INSERT INTO projects (name, user_id) VALUES (?, ?)', 'Vazio', owner.lastInsertRowid);
+    const summaries = await db.all(`
+      SELECT p.id, p.name,
+        CASE WHEN COUNT(t.id) = 0 THEN 0
+        ELSE SUM(t.done) * 100.0 / COUNT(t.id) END AS progress
+      FROM projects p
+      LEFT JOIN tasks t ON t.project_id = p.id AND t.user_id = p.user_id
+      WHERE p.user_id = ?
+      GROUP BY p.id, p.name
+      ORDER BY p.id
+    `, owner.lastInsertRowid);
+    assert.equal(Math.round(Number(summaries.find((row) => row.id === project.lastInsertRowid).progress)), 100);
+    assert.equal(Math.round(Number(summaries.find((row) => row.id === emptyProject.lastInsertRowid).progress)), 0);
     assert.equal(await db.get('SELECT id FROM projects WHERE id = ? AND user_id = ?', project.lastInsertRowid, other.lastInsertRowid), undefined);
 
   } finally {
