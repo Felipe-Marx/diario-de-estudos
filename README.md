@@ -2,7 +2,7 @@
 
 Workspace de estudos com login, perfil personalizável (personagem pixelado ou imagem) e visual inspirado em Stardew Valley.
 
-- **Backend:** Node 20.12+ + Express + SQLite (`better-sqlite3`), autenticação com JWT em cookie httpOnly, senhas com bcrypt
+- **Backend:** Node 20.12+ + Express, SQLite local ou PostgreSQL no Supabase, autenticação com JWT em cookie httpOnly e senhas com bcrypt
 - **Frontend:** React + TypeScript + Vite 6 (`client/`)
 
 ## Como rodar
@@ -38,7 +38,10 @@ cd client && npm ci && npm run dev   # interface em http://localhost:5173
 | `JWT_SECRET` | Segredo dos tokens. Se vazio, um segredo é gerado em `.jwt-secret` (ignorado pelo git) |
 | `GOOGLE_CLIENT_ID` | Habilita o botão "Continuar com o Google" |
 | `NODE_ENV` | Use `production` ao publicar (cookie só via HTTPS) |
-| `DB_PATH` | Caminho alternativo do SQLite; usado pelos testes para apontar a um banco temporário |
+| `DATABASE_URL` | Conexão PostgreSQL; obrigatória quando `NODE_ENV=production`. Na Vercel, use a connection string do pooler em modo transaction do Supabase |
+| `DB_PATH` | Caminho alternativo do SQLite local; ignorado se `DATABASE_URL` estiver configurada |
+
+No desenvolvimento local, sem `DATABASE_URL`, o app mantém o SQLite em `estudos.db`. Em produção, o servidor exige PostgreSQL e não cria um banco local efêmero.
 
 ### Login com Google
 
@@ -51,6 +54,20 @@ cd client && npm ci && npm run dev   # interface em http://localhost:5173
 O app recebe a credencial do Google Identity Services e valida o ID token no backend usando o mesmo `GOOGLE_CLIENT_ID` como audience. Apenas tokens com `sub` e e-mail verificado são aceitos. Uma conta Google com e-mail já cadastrado vincula-se à conta existente; logins posteriores identificam a conta pelo `sub`.
 
 Para validar localmente, confirme que `/api/config` retorna o client ID, abra a interface em uma das origens autorizadas no Console e complete o fluxo com uma conta autorizada na tela de consentimento. `npm test` cobre o contrato do backend com tokens simulados; o teste real com Google exige client ID configurado, navegador com acesso à internet e conta autorizada.
+
+## Publicação gratuita na Vercel + Supabase
+
+O repositório inclui uma configuração inicial para publicar a interface como arquivos estáticos e a API Express como função Node na Vercel. Em produção, a API usa PostgreSQL no Supabase; SQLite permanece disponível para desenvolvimento e testes locais.
+
+1. Crie um projeto no plano **Free** do [Supabase](https://supabase.com/dashboard). Guarde a senha do banco em local seguro.
+2. No painel do Supabase, use **Connect** e selecione o **Transaction pooler** para obter a connection string compatível com funções serverless. Substitua o marcador da senha; caracteres especiais da senha precisam estar codificados na URL.
+3. Crie/import seu repositório no GitHub e envie o commit. Na Vercel, importe o repositório e mantenha a raiz do projeto na raiz deste workspace; `vercel.json` configura o build e o roteamento da API.
+4. Nas variáveis de ambiente de produção da Vercel, configure `DATABASE_URL` com a connection string do Supabase, `JWT_SECRET` com um segredo aleatório forte, `NODE_ENV=production` e, se usar login Google, `GOOGLE_CLIENT_ID`.
+5. Faça o primeiro deploy. O backend cria o schema PostgreSQL na inicialização. Depois, adicione a origem HTTPS exata atribuída ao projeto (por exemplo, `https://diario-de-estudos.vercel.app`, sem curingas) nas origens JavaScript autorizadas do OAuth no Google Cloud e teste cadastro, login e dados.
+
+**Atenção ao plano gratuito:** Vercel Hobby é destinado a projetos pessoais e tem limites de uso. Projetos Supabase Free podem ser pausados após uma semana sem atividade e têm limites de banco/transferência; não incluem as mesmas garantias e backups dos planos pagos. Confirme os limites atuais nos painéis e termos da [Vercel](https://vercel.com/pricing) e do [Supabase](https://supabase.com/pricing). O deploy não deve gerar cobrança se a conta permanecer nos planos gratuitos e dentro dos limites, mas isso não é garantia permanente das plataformas.
+
+O SQLite local não é copiado automaticamente para o Supabase. Antes de migrar dados existentes, faça backup do arquivo `estudos.db`; a transferência será uma etapa separada, com confirmação e validação, antes de qualquer uso real do banco remoto. As credenciais do banco nunca devem ir para o frontend, `.env.example`, GitHub ou logs.
 
 #### Diagnóstico
 
@@ -65,7 +82,10 @@ Para validar localmente, confirme que `/api/config` retorna o client ID, abra a 
 
 ```
 server.js            API REST, auth e perfil
+db.js                adaptador assíncrono: PostgreSQL/Supabase ou SQLite local
 database.js          criação do schema e migrações SQLite compatíveis
+api/[...path].js     entrada da função Express na Vercel
+vercel.json          build, saída estática e roteamento de API
 test/                testes automatizados da API e das migrações
 client/
   test/              testes de interface com Vitest + React Testing Library
@@ -97,6 +117,6 @@ Tudo abaixo de `/api` exige login (cookie), exceto `config` e `auth/*`.
 - Se você usou a versão anterior (sem login), os dados antigos passam a pertencer à primeira conta criada.
 - Novas contas começam sem matérias, tarefas ou projetos de exemplo.
 - Tarefas podem ser movidas entre projetos pela aba **Tarefas**. O progresso é a porcentagem de tarefas concluídas entre as tarefas vinculadas; projeto sem tarefas fica em 0%.
-- `npm test` executa os testes de API/migração com `node:test` e os testes de interface com Vitest + React Testing Library. A suíte da interface usa um mock local da API e cobre navegação, conta vazia/criação de matéria, autosave de notas, criação/conclusão/movimentação de tarefas e progresso acessível, teclado do perfil e mensagens de erro. Os fluxos de API usam bancos SQLite isolados/em memória e tokens Google simulados.
+- `npm test` executa os testes de API/migração com `node:test`, um teste do adaptador/schema PostgreSQL com `pg-mem`, e os testes de interface com Vitest + React Testing Library. A suíte da interface usa um mock local da API e cobre navegação, conta vazia/criação de matéria, autosave de notas, criação/conclusão/movimentação de tarefas e progresso acessível, teclado do perfil e mensagens de erro. Os fluxos de API usam SQLite isolado/em memória e tokens Google simulados. O teste com `pg-mem` não substitui um smoke test contra um projeto Supabase real.
 - Os lockfiles são fonte da instalação reproduzível e devem acompanhar alterações nos `package.json`.
 - Para publicar, use HTTPS, defina `JWT_SECRET` e `NODE_ENV=production`, e guarde o `estudos.db` em um volume persistente.

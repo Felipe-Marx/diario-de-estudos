@@ -9,6 +9,7 @@
 - Build do frontend validado com TypeScript estrito e Vite por `npm run build` em `client/`.
 - Testes automatizados executados com `npm test` na raiz, usando `node:test` e SQLite isolado/em memória.
 - O aplicativo deve continuar usando SQLite local sem exigir serviços externos. Google OAuth é opcional e depende de `GOOGLE_CLIENT_ID`.
+- Em produção na Vercel, o banco deve ser PostgreSQL configurado por `DATABASE_URL`; não depender de armazenamento local efêmero. A conexão SQLite continua disponível para desenvolvimento e testes.
 - Login Google deve validar no servidor o ID token emitido para o client ID configurado, exigir `sub` e e-mail verificado, e vincular e-mails já cadastrados sem criar uma segunda conta.
 - Testes automatizados da rota Google devem simular a validação de tokens; a validação ponta a ponta usa client ID e contas de teste configuradas no Google Cloud.
 
