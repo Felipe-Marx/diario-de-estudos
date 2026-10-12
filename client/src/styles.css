@@ -5,7 +5,7 @@ body{margin:0;color:var(--ink);font:17px/1.55 'Nunito',system-ui,sans-serif;back
 .boot{margin:auto;font-family:var(--px);font-size:22px}
 .wrap{width:min(980px,100% - 32px);margin:0 auto}
 header.sky{position:relative;overflow:hidden;padding-top:26px;min-height:70px}
-header .wrap{position:relative;z-index:1}
+header .wrap{position:relative;z-index:2}
 h1,h2,.px{font-family:var(--px);font-weight:600}
 h1{font-size:clamp(28px,5.5vw,44px);margin:0;line-height:1.1;text-shadow:2px 2px 0 rgba(255,255,255,.7);overflow-wrap:anywhere}
 h2{font-size:21px;margin:18px 0 10px}
@@ -21,7 +21,8 @@ h2{font-size:21px;margin:18px 0 10px}
 nav{display:flex;gap:6px;flex-wrap:wrap}
 nav button{font:600 19px var(--px);background:var(--wood2);border:3px solid var(--wood);border-bottom:0;border-radius:9px 9px 0 0;padding:6px 18px;color:var(--ink);cursor:pointer;box-shadow:none}
 nav button:hover{background:var(--sun)}
-nav button.on{background:var(--par);padding-top:11px}
+nav button.on{position:relative;z-index:2;background:var(--par);padding-top:11px}
+nav button.on::after{content:"";position:absolute;left:0;right:0;bottom:-4px;height:4px;background:var(--par);pointer-events:none}
 main.panel{background:var(--par);border:4px solid var(--wood);border-radius:0 10px 10px 10px;box-shadow:inset 0 0 0 3px var(--par2),0 6px 0 #8A5E38;padding:24px;margin-bottom:34px;position:relative;z-index:1}
 .box{background:var(--box);border:3px solid var(--wood2);border-radius:8px;padding:16px;margin-bottom:16px}
 .two{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
