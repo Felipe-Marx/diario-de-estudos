@@ -122,7 +122,8 @@ function postgresStore(connectionString, PoolClass) {
         ? `${sql} RETURNING id`
         : sql;
       const result = await timedQuery(client, placeholders(statement), params);
-      return { lastInsertRowid: result.rows[0]?.id };
+      const results = Array.isArray(result) ? result : [result];
+      return { lastInsertRowid: results[results.length - 1]?.rows?.[0]?.id };
     },
   });
 

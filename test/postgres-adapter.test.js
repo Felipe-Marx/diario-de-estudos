@@ -16,7 +16,10 @@ test('PostgreSQL inicializa o schema, retorna IDs e mantém isolamento e progres
       const query = client.query.bind(client);
       client.query = (...args) => {
         initializationQueries += 1;
-        return query(...args);
+        const result = query(...args);
+        return args[0].includes('CREATE TABLE IF NOT EXISTS users')
+          ? Promise.resolve(result).then((rows) => [rows])
+          : result;
       };
       return client;
     }
