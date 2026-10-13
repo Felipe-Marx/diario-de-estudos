@@ -67,6 +67,42 @@ function postgresStore(connectionString, PoolClass) {
     allowExitOnIdle: true,
   });
 
+  const timedQuery = async (client, sql, params) => {
+    const started = process.hrtime.bigint();
+    try {
+      return await client.query(sql, params);
+    } finally {
+      const durationMs = Number(process.hrtime.bigint() - started) / 1e6;
+      if (durationMs >= 250) {
+        const operation = /^\s*(SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\b/i.exec(sql)?.[1]?.toUpperCase() || 'OTHER';
+        console.info(JSON.stringify({ event: 'db_slow_query', operation, durationMs: Math.round(durationMs) }));
+      }
+    }
+  };
+  const timedConnect = async () => {
+    const started = process.hrtime.bigint();
+    let status = 'ready';
+    let failure;
+    try {
+      return await pool.connect();
+    } catch (error) {
+      status = 'error';
+      failure = error;
+      throw error;
+    } finally {
+      const durationMs = Number(process.hrtime.bigint() - started) / 1e6;
+      if (durationMs >= 250 || status === 'error') {
+        console.info(JSON.stringify({
+          event: 'db_pool_connect',
+          status,
+          durationMs: Math.round(durationMs),
+          errorName: failure instanceof Error ? failure.name : undefined,
+          errorCode: failure && typeof failure === 'object' && 'code' in failure ? failure.code : undefined,
+        }));
+      }
+    }
+  };
+
   const placeholders = (sql) => {
     let position = 0;
     return sql.replace(/\?/g, () => `$${++position}`).replace(/date\('now', '-10 day'\)/g, 'CURRENT_DATE - INTERVAL \'10 days\'');
@@ -74,18 +110,18 @@ function postgresStore(connectionString, PoolClass) {
 
   const executor = (client) => ({
     get: async (sql, ...params) => {
-      const result = await client.query(placeholders(sql), params);
+      const result = await timedQuery(client, placeholders(sql), params);
       return result.rows[0];
     },
     all: async (sql, ...params) => {
-      const result = await client.query(placeholders(sql), params);
+      const result = await timedQuery(client, placeholders(sql), params);
       return result.rows;
     },
     run: async (sql, ...params) => {
       const statement = /^\s*INSERT\s+INTO\b/i.test(sql) && !/\bRETURNING\b/i.test(sql)
         ? `${sql} RETURNING id`
         : sql;
-      const result = await client.query(placeholders(statement), params);
+      const result = await timedQuery(client, placeholders(statement), params);
       return { lastInsertRowid: result.rows[0]?.id };
     },
   });
@@ -98,7 +134,7 @@ function postgresStore(connectionString, PoolClass) {
     all: queries.all,
     run: queries.run,
     transaction: async (operation) => {
-      const client = await pool.connect();
+      const client = await timedConnect();
       try {
         await client.query('BEGIN');
         const result = await operation(executor(client));
@@ -114,7 +150,23 @@ function postgresStore(connectionString, PoolClass) {
     close: () => pool.end(),
   };
 
-  store.ready = initializePostgres(store);
+  const initializationStarted = process.hrtime.bigint();
+  store.ready = initializePostgres(store).then(() => {
+    console.info(JSON.stringify({
+      event: 'database_init',
+      status: 'ready',
+      durationMs: Math.round(Number(process.hrtime.bigint() - initializationStarted) / 1e6),
+    }));
+  }).catch((error) => {
+    console.error(JSON.stringify({
+      event: 'database_init',
+      status: 'error',
+      durationMs: Math.round(Number(process.hrtime.bigint() - initializationStarted) / 1e6),
+      errorName: error instanceof Error ? error.name : 'UnknownError',
+      errorCode: error && typeof error === 'object' && 'code' in error ? error.code : undefined,
+    }));
+    throw error;
+  });
   return store;
 }
 
@@ -130,26 +182,20 @@ async function initializePostgres(db) {
         avatar_mode TEXT NOT NULL DEFAULT 'character',
         avatar_image TEXT,
         character TEXT NOT NULL
-      )
-    `);
-    await tx.run(`
+      );
       CREATE TABLE IF NOT EXISTS subjects (
         id SERIAL PRIMARY KEY,
         name TEXT NOT NULL,
         color TEXT NOT NULL,
         notes TEXT NOT NULL DEFAULT '',
         user_id INTEGER REFERENCES users(id) ON DELETE CASCADE
-      )
-    `);
-    await tx.run(`
+      );
       CREATE TABLE IF NOT EXISTS projects (
         id SERIAL PRIMARY KEY,
         name TEXT NOT NULL,
         progress INTEGER NOT NULL DEFAULT 0,
         user_id INTEGER REFERENCES users(id) ON DELETE CASCADE
-      )
-    `);
-    await tx.run(`
+      );
       CREATE TABLE IF NOT EXISTS tasks (
         id SERIAL PRIMARY KEY,
         title TEXT NOT NULL,
@@ -158,21 +204,19 @@ async function initializePostgres(db) {
         due TEXT NOT NULL DEFAULT '',
         done INTEGER NOT NULL DEFAULT 0,
         user_id INTEGER REFERENCES users(id) ON DELETE CASCADE
-      )
-    `);
-    await tx.run(`
+      );
       CREATE TABLE IF NOT EXISTS sessions (
         id SERIAL PRIMARY KEY,
         day TEXT NOT NULL,
         minutes INTEGER NOT NULL,
         user_id INTEGER REFERENCES users(id) ON DELETE CASCADE
-      )
+      );
+      CREATE INDEX IF NOT EXISTS subjects_user_id_idx ON subjects(user_id);
+      CREATE INDEX IF NOT EXISTS tasks_user_id_idx ON tasks(user_id);
+      CREATE INDEX IF NOT EXISTS tasks_project_id_idx ON tasks(project_id);
+      CREATE INDEX IF NOT EXISTS projects_user_id_idx ON projects(user_id);
+      CREATE INDEX IF NOT EXISTS sessions_user_day_idx ON sessions(user_id, day);
     `);
-    await tx.run('CREATE INDEX IF NOT EXISTS subjects_user_id_idx ON subjects(user_id)');
-    await tx.run('CREATE INDEX IF NOT EXISTS tasks_user_id_idx ON tasks(user_id)');
-    await tx.run('CREATE INDEX IF NOT EXISTS tasks_project_id_idx ON tasks(project_id)');
-    await tx.run('CREATE INDEX IF NOT EXISTS projects_user_id_idx ON projects(user_id)');
-    await tx.run('CREATE INDEX IF NOT EXISTS sessions_user_day_idx ON sessions(user_id, day)');
   });
 }
 

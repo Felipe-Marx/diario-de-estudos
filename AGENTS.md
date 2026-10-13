@@ -152,7 +152,7 @@ O progresso não pode ser alterado manualmente pela API nem pela interface. É d
 
 ## Convenções do frontend
 
-- **Padrão de mutação:** `act(() => api(...))` executa a chamada e depois recarrega `/api/all` inteiro (`useData` em `App.tsx`). Para tarefas, passe também uma atualização otimista de `AllData`: a interface atualiza imediatamente, sem recarga após sucesso; em falha, recarrega os dados do servidor e mostra o alerta padrão. Ao mudar tarefas vinculadas, recalcule também o progresso otimista do projeto.
+- **Padrão de mutação:** `act(() => api(...))` recarrega `/api/all` após sucesso por padrão. Para tarefas, sessão do timer, edição/exclusão de matéria e criação/exclusão de projeto, passe uma atualização otimista de `AllData`: a interface atualiza sem GET adicional após sucesso; em falha, recarrega o servidor e mantém o alerta padrão. Ao mudar tarefas vinculadas, recalcule também o progresso otimista do projeto.
 - O estado do timer vive no `Shell` (`useTimer`), para continuar rodando ao trocar de aba. Minutos focados são gravados ao pausar ou concluir um ciclo, em minutos inteiros acumulados; `POST /sessions` usa o dia **local** (`today()` de `lib.ts`).
 - `Subjects`: autosave das notas com debounce de 600 ms. O `useEffect` que sincroniza `notes` depende só de `s?.id` de propósito (evita sobrescrever o que o usuário está digitando).
 - `Tasks`: criação aceita matéria, projeto e prazo; a lista indica o projeto vinculado. A tela Hoje também mostra o projeto nas próximas tarefas.
@@ -161,6 +161,7 @@ O progresso não pode ser alterado manualmente pela API nem pela interface. É d
 - Nas rotas de tarefa, valide matéria/projeto dentro da instrução de gravação; recalcule em uma única instrução o progresso dos projetos afetados. Mantenha a compatibilidade SQL com SQLite e PostgreSQL.
 - Desenvolvimento local usa SQLite por padrão; produção exige `DATABASE_URL` e usa PostgreSQL. A camada em `db.js` expõe operações assíncronas e transações; novas queries devem continuar limitadas por `user_id`.
 - PostgreSQL do Supabase usa schema idempotente inicializado pelo backend. Na Vercel, configurar `DATABASE_URL` com Transaction pooler e `DATABASE_CA_CERT` com o certificado raiz PEM do Supabase para validar TLS; nunca expor a URL ao cliente nem registrá-la em logs.
+- Logs de runtime registram `api_request` com método, rota parametrizada, status e duração; `db_slow_query` inclui apenas operação e duração (limiar 250 ms); `db_pool_connect` mede obtenção de conexão lenta/falha; `database_init` mede inicialização do schema. Não registrar cookies, corpos, SQL, IDs pessoais ou credenciais.
 - `better-sqlite3` e `pg-mem` ficam em `devDependencies`; `pg` é dependência de runtime. Dados do SQLite local não são transferidos automaticamente ao Supabase.
 - `Today > ProjectRow` exibe a planta, uma barra acessível somente de leitura (`role="progressbar"`) e o percentual. Não reintroduzir slider manual.
 - Grupos de opções do personagem no perfil usam `radiogroup`/`radio`: Tab entra no valor selecionado e as setas, Home e End permitem escolher sem percorrer cada opção individualmente.
@@ -200,7 +201,7 @@ Feito e verificado:
 - No criador de personagem, 8 grupos agora têm um único ponto de parada por Tab (antes cada opção era uma parada); navegação por setas e End foi confirmada no navegador.
 - A lista de tarefas anuncia título junto à ação de concluir/reabrir; o gráfico semanal anuncia os minutos de cada dia; uma falha simulada de mutação apareceu como alerta dispensável.
 - Banco e servidor temporários usados nesta revisão foram isolados dos dados locais do usuário.
-- `npm test` executa 4 testes de integração da API/migração, 1 teste do adaptador PostgreSQL em `pg-mem` e 5 testes de interface com Vitest/React Testing Library: navegação e criação de matéria em conta vazia, autosave/renderização Markdown, ciclo de tarefa/projeto, teclado e salvamento do perfil, e anúncio de falhas de mutação.
+- `npm test` executa testes de integração da API/migração, teste do adaptador PostgreSQL em `pg-mem` e testes de interface com Vitest/React Testing Library. Eles cobrem o ciclo de tarefa/projeto, contagem de consultas, atualizações otimistas e falhas com rollback.
 - A suíte de API também testa o schema/adaptador PostgreSQL em `pg-mem`. Isso valida SQL básico e transações no emulador, mas não substitui teste de conexão, pooler, SSL e fluxo completo contra Supabase real.
 - Os testes de interface simulam a API em memória no navegador jsdom; não exigem servidor nem alteram o banco local.
 - Vitest ficou em versão corrigida após o audit apontar advisories na versão inicial; `npm audit` na raiz e no cliente retornou zero vulnerabilidades.

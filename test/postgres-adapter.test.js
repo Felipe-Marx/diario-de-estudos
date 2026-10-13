@@ -8,11 +8,25 @@ const { createPostgresStore } = require('../db');
 test('PostgreSQL inicializa o schema, retorna IDs e mantém isolamento e progresso transacional', async () => {
   const memory = newDb({ autoCreateForeignKeyIndices: true });
   memory.public.registerFunction({ name: 'floor', args: ['float'], returns: 'integer', implementation: Math.floor });
-  const { Pool } = memory.adapters.createPg();
+  const { Pool: BasePool } = memory.adapters.createPg();
+  let initializationQueries = 0;
+  class CountingPool extends BasePool {
+    async connect() {
+      const client = await super.connect();
+      const query = client.query.bind(client);
+      client.query = (...args) => {
+        initializationQueries += 1;
+        return query(...args);
+      };
+      return client;
+    }
+  }
+  const Pool = CountingPool;
   const db = createPostgresStore('postgres://test:test@localhost/test', Pool);
 
   try {
     await db.ready;
+    assert.equal(initializationQueries, 3, 'schema initialization uses BEGIN, one DDL batch, and COMMIT');
     const owner = await db.run(
       'INSERT INTO users (email, username, character) VALUES (?, ?, ?)',
       'owner@example.test',

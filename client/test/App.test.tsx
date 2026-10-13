@@ -78,6 +78,12 @@ beforeEach(() => {
       data.subjects.push(subject);
       return response({ id: subject.id });
     }
+    if (method === 'DELETE' && path.startsWith('/subjects/')) {
+      const id = Number(path.split('/').pop());
+      data.subjects = data.subjects.filter((subject) => subject.id !== id);
+      data.tasks = data.tasks.map((task) => task.subject_id === id ? { ...task, subject_id: null } : task);
+      return response({});
+    }
     if (method === 'PUT' && path.startsWith('/subjects/')) {
       const id = Number(path.split('/').pop());
       data.subjects = data.subjects.map((subject) =>
@@ -114,6 +120,18 @@ beforeEach(() => {
     if (method === 'DELETE' && path.startsWith('/tasks/')) {
       const id = Number(path.split('/').pop());
       data.tasks = data.tasks.filter((task) => task.id !== id);
+      recalculateProgress();
+      return response({});
+    }
+    if (method === 'POST' && path === '/projects') {
+      const project = { id: Date.now(), name: String(body.name), progress: 0 };
+      data.projects.push(project);
+      return response({ id: project.id });
+    }
+    if (method === 'DELETE' && path.startsWith('/projects/')) {
+      const id = Number(path.split('/').pop());
+      data.projects = data.projects.filter((project) => project.id !== id);
+      data.tasks = data.tasks.map((task) => task.project_id === id ? { ...task, project_id: null } : task);
       recalculateProgress();
       return response({});
     }
@@ -166,6 +184,7 @@ describe('fluxos principais da interface', () => {
           body: { minutes: 3, day: today() },
         });
       });
+      expect(requests.filter((request) => request.method === 'GET' && request.path === '/all')).toHaveLength(1);
       expect(screen.getByText('3', { selector: 'p.big' })).not.toBeNull();
     } finally {
       vi.useRealTimers();
@@ -191,6 +210,7 @@ describe('fluxos principais da interface', () => {
         path: '/subjects/10',
         body: { notes: '**mitose**' },
       });
+      expect(requests.filter((request) => request.method === 'GET' && request.path === '/all')).toHaveLength(1);
 
       fireEvent.click(screen.getByRole('button', { name: 'Visualizar' }));
       expect(screen.getByText('mitose').tagName).toBe('B');
@@ -238,6 +258,47 @@ describe('fluxos principais da interface', () => {
       path: '/tasks',
       body: { title: 'Ler capítulo', subject_id: 10, project_id: 20, due: '' },
     });
+    expect(requests.filter((request) => request.method === 'GET' && request.path === '/all')).toHaveLength(1);
+  });
+
+  it('cria projeto imediatamente sem recarregar todos os dados', async () => {
+    const user = userEvent.setup();
+    renderApp();
+    await screen.findByRole('heading', { name: /Estudante/ });
+    await user.type(screen.getByRole('textbox', { name: 'Nome do projeto' }), 'Projeto local');
+    await user.click(screen.getByRole('button', { name: 'Plantar projeto' }));
+
+    expect(await screen.findByText('Projeto local')).not.toBeNull();
+    expect(requests).toContainEqual(expect.objectContaining({ method: 'POST', path: '/projects' }));
+    expect(requests.filter((request) => request.method === 'GET' && request.path === '/all')).toHaveLength(1);
+  });
+
+  it('remove matéria sem recarregar dados completos e desvincula as tarefas', async () => {
+    const user = userEvent.setup();
+    data.subjects = [{ id: 10, name: 'Biologia', color: '#A8D68B', notes: '' }];
+    data.tasks = [{ id: 30, title: 'Ler capítulo', subject_id: 10, project_id: null, due: '', done: 0 }];
+    renderApp();
+    await screen.findByRole('heading', { name: /Estudante/ });
+    await user.click(screen.getByRole('button', { name: 'Matérias' }));
+    await user.click(screen.getByRole('button', { name: 'Excluir matéria' }));
+    await user.click(screen.getByRole('button', { name: 'Confirmar exclusão' }));
+
+    expect(await screen.findByText('Plante sua primeira matéria acima.')).not.toBeNull();
+    expect(data.tasks[0].subject_id).toBeNull();
+    expect(requests.filter((request) => request.method === 'GET' && request.path === '/all')).toHaveLength(1);
+  });
+
+  it('remove projeto imediatamente e desvincula tarefas sem recarregar dados completos', async () => {
+    const user = userEvent.setup();
+    data.projects = [{ id: 20, name: 'Projeto de estudo', progress: 0 }];
+    data.tasks = [{ id: 30, title: 'Ler capítulo', subject_id: null, project_id: 20, due: '', done: 0 }];
+    renderApp();
+    await screen.findByRole('heading', { name: /Estudante/ });
+    await user.click(screen.getByRole('button', { name: 'Excluir' }));
+
+    expect(await screen.findByText('Plante um projeto e veja ele crescer conforme o progresso.')).not.toBeNull();
+    expect(data.tasks[0].project_id).toBeNull();
+    expect(requests.filter((request) => request.method === 'GET' && request.path === '/all')).toHaveLength(1);
   });
 
   it('mostra uma tarefa imediatamente enquanto a API ainda está respondendo', async () => {

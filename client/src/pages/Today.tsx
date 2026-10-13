@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { api, type Act, type AllData, type Project, updateTasks } from '../api';
 import { byDue, fmt, loc, today } from '../lib';
 import { Pix, stage } from '../pixel';
@@ -27,6 +27,7 @@ function ProjectRow({ p, act }: { p: Project; act: Act }) {
 
 export default function Today({ d, act, t }: { d: AllData; act: Act; t: Timer }) {
   const [pn, setPn] = useState('');
+  const temporaryProjectId = useRef(-1);
   const days = Array.from({ length: 7 }, (_, i) => { const day = loc(6 - i); return [day, d.sessions[day] || 0] as const; });
   const max = Math.max(60, ...days.map((x) => x[1]));
   const pend = d.tasks.filter((x) => !x.done).sort(byDue).slice(0, 5);
@@ -38,8 +39,20 @@ export default function Today({ d, act, t }: { d: AllData; act: Act; t: Timer })
   const addProject = () => {
     const name = pn.trim();
     if (!name) return;
+    const id = temporaryProjectId.current--;
     setPn('');
-    act(() => api('POST', '/projects', { name }));
+    act(
+      () => api<{ id: number }>('POST', '/projects', { name }),
+      (data) => ({ ...data, projects: [...data.projects, { id, name, progress: 0 }] }),
+      (data, result) => {
+        if (!result || typeof result !== 'object' || !('id' in result) || typeof result.id !== 'number') return data;
+        const serverId = result.id;
+        return {
+          ...data,
+          projects: data.projects.map((project) => project.id === id ? { ...project, id: serverId } : project),
+        };
+      },
+    );
   };
 
   return (
@@ -81,6 +94,7 @@ export default function Today({ d, act, t }: { d: AllData; act: Act; t: Timer })
                 return (
                   <li key={x.id}>
                     <input type="checkbox" aria-label={'Concluir tarefa: ' + x.title}
+                      checked={!!x.done}
                       onChange={() => act(
                         () => api('PATCH', '/tasks/' + x.id, { done: true }),
                         (data) => updateTasks(data, (tasks) => tasks.map((task) =>
@@ -106,7 +120,16 @@ export default function Today({ d, act, t }: { d: AllData; act: Act; t: Timer })
           <button className="p" onClick={addProject}>Plantar projeto</button>
         </div>
         {d.projects.length
-          ? <ul className="l">{d.projects.map((p) => <ProjectRow key={p.id + '-' + p.progress} p={p} act={act} />)}</ul>
+          ? <ul className="l">{d.projects.map((p) => (
+            <ProjectRow key={p.id + '-' + p.progress} p={p} act={(action) => act(
+              action,
+              (data) => ({
+                ...data,
+                projects: data.projects.filter((project) => project.id !== p.id),
+                tasks: data.tasks.map((task) => task.project_id === p.id ? { ...task, project_id: null } : task),
+              }),
+            )} />
+          ))}</ul>
           : <p className="emp">Plante um projeto e veja ele crescer conforme o progresso.</p>}
       </section>
     </>

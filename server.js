@@ -132,6 +132,21 @@ const app = express();
 app.set('trust proxy', 1);
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/api/')) return next();
+  const started = process.hrtime.bigint();
+  res.once('finish', () => {
+    const route = req.route ? `${req.baseUrl}${req.route.path}` : req.path.replace(/\/\d+(?=\/|$)/g, '/:id');
+    console.info(JSON.stringify({
+      event: 'api_request',
+      method: req.method,
+      route,
+      status: res.statusCode,
+      durationMs: Math.round(Number(process.hrtime.bigint() - started) / 1e6),
+    }));
+  });
+  next();
+});
 app.use(asyncRoute(async (req, res, next) => {
   await db.ready;
   next();

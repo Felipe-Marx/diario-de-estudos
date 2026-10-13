@@ -17,7 +17,13 @@ export default function Subjects({ subjects, act }: { subjects: Subject[]; act: 
     setNotes(value);
     clearTimeout(timer.current);
     const id = s.id;
-    timer.current = window.setTimeout(() => act(() => api('PUT', '/subjects/' + id, { notes: value })), 600);
+    timer.current = window.setTimeout(() => act(
+      () => api('PUT', '/subjects/' + id, { notes: value }),
+      (data) => ({
+        ...data,
+        subjects: data.subjects.map((subject) => subject.id === id ? { ...subject, notes: value } : subject),
+      }),
+    ), 600);
   };
 
   const add = () => {
@@ -30,7 +36,14 @@ export default function Subjects({ subjects, act }: { subjects: Subject[]; act: 
   const remove = () => {
     if (!confirm) return setConfirm(true);
     setCur(null);
-    act(() => api('DELETE', '/subjects/' + s.id));
+    act(
+      () => api('DELETE', '/subjects/' + s.id),
+      (data) => ({
+        ...data,
+        subjects: data.subjects.filter((subject) => subject.id !== s.id),
+        tasks: data.tasks.map((task) => task.subject_id === s.id ? { ...task, subject_id: null } : task),
+      }),
+    );
   };
 
   return (
