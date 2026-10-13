@@ -10,8 +10,12 @@ export interface User {
 export interface Subject { id: number; name: string; color: string; notes: string }
 export interface Task { id: number; title: string; subject_id: number | null; project_id: number | null; due: string; done: number }
 export interface Project { id: number; name: string; progress: number }
+export interface Flashcard {
+  id: number; subject_id: number; front: string; back: string;
+  interval_days: number; repetitions: number; ease_factor: number; next_review_at: number;
+}
 export interface AllData {
-  subjects: Subject[]; tasks: Task[]; projects: Project[];
+  subjects: Subject[]; tasks: Task[]; projects: Project[]; flashcards: Flashcard[];
   sessions: Record<string, number>;
 }
 export type Act = (

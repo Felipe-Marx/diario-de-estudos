@@ -69,10 +69,11 @@ client/
       Today.tsx           pomodoro, minutos focados, próximas tarefas, horta de projetos
       Subjects.tsx        matérias + notas em Markdown (autosave)
       Tasks.tsx           tarefas com matéria e prazo
+      Flashcards.tsx      baralhos por matéria, revisão espaçada e avaliação SM-2
       Profile.tsx         username, avatar (personagem ou imagem), criador de personagem
 ```
 
-Abas atuais: **Hoje, Matérias, Tarefas, Perfil**. A aba "Código" (snippets) foi removida de propósito. Não recrie sem o usuário pedir.
+Abas atuais: **Hoje, Matérias, Tarefas, Cartões, Perfil**. A aba "Código" (snippets) foi removida de propósito. Não recrie sem o usuário pedir.
 
 ## Banco de dados
 
@@ -82,6 +83,7 @@ subjects(id, name, color, notes, user_id)
 tasks(id, title, subject_id NULL, project_id NULL, due '' ou YYYY-MM-DD, done 0/1, user_id)
 projects(id, name, progress 0..100, user_id)
 sessions(id, day YYYY-MM-DD, minutes, user_id)
+flashcards(id, subject_id, front, back, interval_days, repetitions, ease_factor, next_review_at, user_id)
 ```
 
 - Todas as tabelas de dados têm `user_id` com `ON DELETE CASCADE`.
@@ -102,7 +104,10 @@ POST   /api/auth/google                 { credential }   (501 se GOOGLE_CLIENT_I
 POST   /api/auth/logout
 GET    /api/me
 PUT    /api/me                          { username?, character?, avatarImage? (dataURL | null), avatarMode? }
-GET    /api/all                         { subjects, tasks[{..., project_id}], projects, sessions: {YYYY-MM-DD: minutos} }
+GET    /api/all                         { subjects, tasks[{..., project_id}], projects, flashcards, sessions: {YYYY-MM-DD: minutos} }
+POST   /api/flashcards                  { subject_id, front, back }
+PATCH  /api/flashcards/:id/review       { rating: again | hard | good | easy }
+DELETE /api/flashcards/:id
 POST   /api/subjects   PUT/DELETE /api/subjects/:id      (PUT: name?, notes?)
 POST   /api/tasks      { title, subject_id?, project_id?, due? }
 PATCH  /api/tasks/:id  { done?, project_id? }
@@ -119,10 +124,11 @@ O progresso não pode ser alterado manualmente pela API nem pela interface. É d
 1. **Toda query de dados filtra por `user_id = req.user.id`**, inclusive UPDATE e DELETE. Ao criar rota nova, siga o mesmo padrão.
 2. Ao criar tarefa com `subject_id`, o servidor confere se a matéria pertence ao usuário; senão grava `NULL`.
 3. Ao criar/associar tarefa com `project_id`, o servidor confere se o projeto pertence ao usuário; senão grava `NULL`. O cálculo do progresso só considera tarefas e projetos do usuário autenticado.
-4. Validação é sempre no servidor (o frontend só ajuda). Ex.: `cleanChar` rejeita personagem fora dos limites.
-5. Login/cadastro têm rate limit em memória (20 tentativas por IP a cada 15 min). Resposta de login errado é genérica.
-6. Nunca commitar `.env`, `.jwt-secret` nem `estudos.db` (já estão no `.gitignore`).
-7. `JWT_SECRET` vem do ambiente; se vazio, é gerado e salvo em `.jwt-secret`.
+4. Flashcards só podem ser criados para matérias do usuário; GET, review e DELETE são limitados por `user_id`.
+5. Validação é sempre no servidor (o frontend só ajuda). Ex.: `cleanChar` rejeita personagem fora dos limites.
+6. Login/cadastro têm rate limit em memória (20 tentativas por IP a cada 15 min). Resposta de login errado é genérica.
+7. Nunca commitar `.env`, `.jwt-secret` nem `estudos.db` (já estão no `.gitignore`).
+8. `JWT_SECRET` vem do ambiente; se vazio, é gerado e salvo em `.jwt-secret`.
 
 ## Autenticação
 
@@ -152,12 +158,14 @@ O progresso não pode ser alterado manualmente pela API nem pela interface. É d
 
 ## Convenções do frontend
 
-- **Padrão de mutação:** `act(() => api(...))` recarrega `/api/all` após sucesso por padrão. Para tarefas, sessão do timer, edição/exclusão de matéria e criação/exclusão de projeto, passe uma atualização otimista de `AllData`: a interface atualiza sem GET adicional após sucesso; em falha, recarrega o servidor e mantém o alerta padrão. Ao mudar tarefas vinculadas, recalcule também o progresso otimista do projeto.
+- **Padrão de mutação:** `act(() => api(...))` recarrega `/api/all` após sucesso por padrão. Para tarefas, sessão do timer, edição/exclusão de matéria, criação/exclusão de projeto e operações de flashcards, passe uma atualização otimista de `AllData`: a interface atualiza sem GET adicional após sucesso; em falha, recarrega o servidor e mantém o alerta padrão. Ao mudar tarefas vinculadas, recalcule também o progresso otimista do projeto.
 - O estado do timer vive no `Shell` (`useTimer`), para continuar rodando ao trocar de aba. Minutos focados são gravados ao pausar ou concluir um ciclo, em minutos inteiros acumulados; `POST /sessions` usa o dia **local** (`today()` de `lib.ts`).
 - `Subjects`: autosave das notas com debounce de 600 ms. O `useEffect` que sincroniza `notes` depende só de `s?.id` de propósito (evita sobrescrever o que o usuário está digitando).
 - `Tasks`: criação aceita matéria, projeto e prazo; a lista indica o projeto vinculado. A tela Hoje também mostra o projeto nas próximas tarefas.
+- `Cartões`: cada matéria funciona como baralho; cada cartão tem frente e verso e pode ser avaliado como Errei/Difícil/Bom/Fácil durante a revisão.
 - `Tasks`: cada tarefa pode ser movida para outro projeto ou desvinculada pelo seletor de projeto na própria linha.
 - Progresso de projeto é derivado das tarefas concluídas; mudanças de conclusão, reabertura, movimentação e exclusão atualizam o percentual otimisticamente e revertem ao estado do servidor se a mutação falhar.
+- Flashcards pertencem à matéria e ao usuário autenticado. O escalonamento usa o fator de facilidade do SM-2 (mínimo 1.3): Errei reinicia e agenda em 10 minutos; sucessos começam em 1 e 6 dias e depois multiplicam o intervalo pelo fator.
 - Nas rotas de tarefa, valide matéria/projeto dentro da instrução de gravação; recalcule em uma única instrução o progresso dos projetos afetados. Mantenha a compatibilidade SQL com SQLite e PostgreSQL.
 - Desenvolvimento local usa SQLite por padrão; produção exige `DATABASE_URL` e usa PostgreSQL. A camada em `db.js` expõe operações assíncronas e transações; novas queries devem continuar limitadas por `user_id`.
 - PostgreSQL do Supabase usa schema idempotente inicializado pelo backend. Na Vercel, configurar `DATABASE_URL` com Transaction pooler e `DATABASE_CA_CERT` com o certificado raiz PEM do Supabase para validar TLS; nunca expor a URL ao cliente nem registrá-la em logs.
@@ -196,12 +204,13 @@ Feito e verificado:
 - No navegador real, o seletor moveu uma tarefa para outro projeto; os percentuais foram atualizados (100% no projeto restante e 0% no novo).
 - No navegador real, a barra acessível foi exibida sem slider manual.
 - Os dados usados na validação de interface ficaram em um banco temporário isolado, removido ao final.
-- Revisão visual/acessível em instância e banco temporários: abas Hoje, Matérias, Tarefas e Perfil verificadas em viewport 1280px e 375px sem overflow horizontal; foco visível confirmado por teclado.
-- A navegação das quatro abas foi mantida em uma única linha em telas pequenas; confirmado no navegador em 375px e 320px, sem quebra de linha nem overflow no documento.
+- Revisão visual/acessível em instância e banco temporários: abas Hoje, Matérias, Tarefas, Cartões e Perfil verificadas em viewport 1280px e 375px sem overflow horizontal; foco visível confirmado por teclado.
+- A navegação de cinco abas foi mantida em uma única linha em telas pequenas; rótulos compactos (Mat., Taref., Cart.) são exibidos até 480px, com nomes acessíveis completos. Confirmado no navegador em 320px, 375px, 480px e 481px, sem texto sobreposto nem overflow horizontal.
+- A tela de Cartões foi verificada visualmente em 1280px, 375px e 320px: estado sem matérias, baralho vazio, frente/verso revelados, quatro avaliações e estado após revisão. Criação e avaliação foram exercitadas em banco SQLite temporário isolado.
 - No criador de personagem, 8 grupos agora têm um único ponto de parada por Tab (antes cada opção era uma parada); navegação por setas e End foi confirmada no navegador.
 - A lista de tarefas anuncia título junto à ação de concluir/reabrir; o gráfico semanal anuncia os minutos de cada dia; uma falha simulada de mutação apareceu como alerta dispensável.
 - Banco e servidor temporários usados nesta revisão foram isolados dos dados locais do usuário.
-- `npm test` executa testes de integração da API/migração, teste do adaptador PostgreSQL em `pg-mem` e testes de interface com Vitest/React Testing Library. Eles cobrem o ciclo de tarefa/projeto, contagem de consultas, atualizações otimistas e falhas com rollback.
+- `npm test` executa testes de integração da API/migração, teste do adaptador PostgreSQL em `pg-mem` e testes de interface com Vitest/React Testing Library. Eles cobrem o ciclo de tarefa/projeto, contagem de consultas, flashcards, atualizações otimistas e falhas com rollback.
 - A suíte de API também testa o schema/adaptador PostgreSQL em `pg-mem`. Isso valida SQL básico e transações no emulador, mas não substitui teste de conexão, pooler, SSL e fluxo completo contra Supabase real.
 - Os testes de interface simulam a API em memória no navegador jsdom; não exigem servidor nem alteram o banco local.
 - Vitest ficou em versão corrigida após o audit apontar advisories na versão inicial; `npm audit` na raiz e no cliente retornou zero vulnerabilidades.
@@ -214,11 +223,13 @@ Testes automatizados de API/migração ficam em `test/` e usam `node:test`, banc
 
 **Não verificado**: leitura com leitor de tela, revisão exaustiva de todos os estados/fluxos visuais, upload de imagem e timer nos testes automatizados do cliente. O criador de personagem foi revisado por teclado e viewport e há teste automatizado da navegação por teclado, mas não de todos os valores nem com leitor de tela. O adaptador foi exercitado em `pg-mem`, mas ainda falta smoke test contra Supabase real. Configuração de projetos/segredos Vercel e Supabase, autorização OAuth da origem de produção e transferência de dados SQLite são etapas manuais pendentes. O login real com Google foi confirmado pelo usuário.
 
+Flashcards têm cobertura automatizada de API, migração, adaptador PostgreSQL e fluxo de interface com API simulada; a tela também foi revisada visualmente em navegador local, sem teste contra Supabase real. Leitor de tela e todos os fluxos/estados visuais ainda não foram verificados exaustivamente.
+
 ## Lacunas conhecidas / ideias
 
 - Recuperação de senha e verificação de e-mail no cadastro.
 - Rate limit persistente (hoje zera ao reiniciar).
-- Flashcards com repetição espaçada, calendário de provas.
+- Calendário de provas.
 - Expandir testes do cliente para login, upload de imagem, timer, filtros e exclusão/confirmação de matérias e tarefas.
 - Deploy (Render, Railway ou Fly.io).
 

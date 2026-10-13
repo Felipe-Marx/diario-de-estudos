@@ -212,11 +212,24 @@ async function initializePostgres(db) {
         minutes INTEGER NOT NULL,
         user_id INTEGER REFERENCES users(id) ON DELETE CASCADE
       );
+      CREATE TABLE IF NOT EXISTS flashcards (
+        id SERIAL PRIMARY KEY,
+        subject_id INTEGER NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+        front TEXT NOT NULL,
+        back TEXT NOT NULL,
+        interval_days INTEGER NOT NULL DEFAULT 0,
+        repetitions INTEGER NOT NULL DEFAULT 0,
+        ease_factor REAL NOT NULL DEFAULT 2.5,
+        next_review_at BIGINT NOT NULL DEFAULT 0,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE
+      );
       CREATE INDEX IF NOT EXISTS subjects_user_id_idx ON subjects(user_id);
       CREATE INDEX IF NOT EXISTS tasks_user_id_idx ON tasks(user_id);
       CREATE INDEX IF NOT EXISTS tasks_project_id_idx ON tasks(project_id);
       CREATE INDEX IF NOT EXISTS projects_user_id_idx ON projects(user_id);
       CREATE INDEX IF NOT EXISTS sessions_user_day_idx ON sessions(user_id, day);
+      CREATE INDEX IF NOT EXISTS flashcards_user_due_idx ON flashcards(user_id, next_review_at);
+      CREATE INDEX IF NOT EXISTS flashcards_subject_idx ON flashcards(subject_id);
     `);
   });
 }

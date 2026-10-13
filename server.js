@@ -254,12 +254,77 @@ app.get('/api/all', asyncRoute(async (req, res) => {
     GROUP BY p.id, p.name
     ORDER BY p.id
   `, uid);
+  const flashcards = await db.all(`
+    SELECT id, subject_id, front, back, interval_days, repetitions, ease_factor, next_review_at
+    FROM flashcards WHERE user_id = ? ORDER BY next_review_at, id
+  `, uid);
   res.json({
     subjects: await db.all('SELECT id, name, color, notes FROM subjects WHERE user_id = ? ORDER BY id', uid),
     tasks: await db.all('SELECT id, title, subject_id, project_id, due, done FROM tasks WHERE user_id = ? ORDER BY id', uid),
+    flashcards: flashcards.map((card) => ({ ...card, next_review_at: Number(card.next_review_at) })),
     projects: projects.map((project) => ({ ...project, progress: Math.round(Number(project.progress)) })),
     sessions,
   });
+}));
+
+// Flashcards
+app.post('/api/flashcards', asyncRoute(async (req, res) => {
+  const subjectId = Number(req.body.subject_id) || 0;
+  const front = str(req.body.front, 5000);
+  const back = str(req.body.back, 5000);
+  if (!subjectId || !front || !back) return bad(res, 'Matéria, frente e verso são obrigatórios');
+  const result = await db.get(`
+    INSERT INTO flashcards (subject_id, front, back, user_id)
+    SELECT id, ?, ?, ? FROM subjects WHERE id = ? AND user_id = ?
+    RETURNING id
+  `, front, back, req.user.id, subjectId, req.user.id);
+  if (!result) return bad(res, 'Matéria não encontrada', 404);
+  res.status(201).json({ id: result.id });
+}));
+
+app.patch('/api/flashcards/:id/review', asyncRoute(async (req, res) => {
+  const qualities = { again: 1, hard: 3, good: 4, easy: 5 };
+  if (!Object.prototype.hasOwnProperty.call(qualities, req.body.rating)) return bad(res, 'Avaliação inválida');
+  const quality = qualities[req.body.rating];
+  const now = Date.now();
+  const updated = await db.transaction(async (query) => {
+    const card = await query.get(`
+      SELECT interval_days, repetitions, ease_factor
+      FROM flashcards WHERE id = ? AND user_id = ?
+    `, req.params.id, req.user.id);
+    if (!card) return null;
+
+    const repetitions = quality < 3 ? 0 : Number(card.repetitions) + 1;
+    const intervalDays = quality < 3
+      ? 0
+      : repetitions === 1
+        ? 1
+        : repetitions === 2
+          ? 6
+          : Math.max(1, Math.round(Number(card.interval_days) * Number(card.ease_factor)));
+    const easeFactor = Math.max(
+      1.3,
+      Number(card.ease_factor) + 0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02),
+    );
+    const nextReviewAt = now + (intervalDays ? intervalDays * 24 * 60 * 60 * 1000 : 10 * 60 * 1000);
+    return query.get(`
+      UPDATE flashcards
+      SET interval_days = ?, repetitions = ?, ease_factor = ?, next_review_at = ?
+      WHERE id = ? AND user_id = ?
+      RETURNING id, subject_id, front, back, interval_days, repetitions, ease_factor, next_review_at
+    `, intervalDays, repetitions, easeFactor, nextReviewAt, req.params.id, req.user.id);
+  });
+  if (!updated) return bad(res, 'Cartão não encontrado', 404);
+  res.json({ ...updated, next_review_at: Number(updated.next_review_at) });
+}));
+
+app.delete('/api/flashcards/:id', asyncRoute(async (req, res) => {
+  const removed = await db.get(
+    'DELETE FROM flashcards WHERE id = ? AND user_id = ? RETURNING id',
+    req.params.id, req.user.id,
+  );
+  if (!removed) return bad(res, 'Cartão não encontrado', 404);
+  res.json({ ok: true });
 }));
 
 // Matérias

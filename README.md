@@ -44,6 +44,10 @@ cd client && npm ci && npm run dev   # interface em http://localhost:5173
 
 No desenvolvimento local, sem `DATABASE_URL`, o app mantém o SQLite em `estudos.db`. Em produção, o servidor exige PostgreSQL e não cria um banco local efêmero.
 
+### Cartões com repetição espaçada
+
+Na aba **Cartões**, cada matéria tem seu próprio baralho. Cadastre a pergunta na frente e a explicação no verso; a tela mostra os cartões prontos para revisão. Depois de revelar o verso, avalie a lembrança como **Errei**, **Difícil**, **Bom** ou **Fácil**. O agendador usa o fator de facilidade do SM-2: as primeiras revisões bem-sucedidas ficam para 1 e 6 dias, e as seguintes aumentam conforme o histórico; respostas erradas reaparecem após 10 minutos. Cartões são apagados junto com a matéria e só podem ser acessados pelo seu usuário.
+
 ### Login com Google
 
 1. Acesse o [Google Cloud Console](https://console.cloud.google.com/) e crie um projeto.

@@ -43,7 +43,7 @@ function renderApp() {
 
 beforeEach(() => {
   currentUser = { ...user, character: { ...user.character } };
-  data = { subjects: [], tasks: [], projects: [], sessions: {} };
+  data = { subjects: [], tasks: [], projects: [], flashcards: [], sessions: {} };
   requests = [];
   rejectNextMutation = null;
   nextTaskMutationGate = null;
@@ -77,6 +77,43 @@ beforeEach(() => {
       const subject = { id: Date.now(), name: String(body.name), color: '#A8D68B', notes: '' };
       data.subjects.push(subject);
       return response({ id: subject.id });
+    }
+    if (method === 'POST' && path === '/flashcards') {
+      const card = {
+        id: Date.now(),
+        subject_id: Number(body.subject_id),
+        front: String(body.front),
+        back: String(body.back),
+        interval_days: 0,
+        repetitions: 0,
+        ease_factor: 2.5,
+        next_review_at: 0,
+      };
+      data.flashcards.push(card);
+      return response({ id: card.id });
+    }
+    if (method === 'PATCH' && path.endsWith('/review')) {
+      const id = Number(path.split('/')[2]);
+      const card = data.flashcards.find((item) => item.id === id);
+      if (!card) return response({ error: 'Cartão não encontrado' }, 404);
+      const quality = body.rating === 'again' ? 1 : body.rating === 'hard' ? 3 : body.rating === 'good' ? 4 : 5;
+      const repetitions = quality < 3 ? 0 : card.repetitions + 1;
+      const intervalDays = quality < 3 ? 0 : repetitions === 1 ? 1 : repetitions === 2 ? 6
+        : Math.max(1, Math.round(card.interval_days * card.ease_factor));
+      const updated = {
+        ...card,
+        repetitions,
+        interval_days: intervalDays,
+        ease_factor: Math.max(1.3, card.ease_factor + 0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02)),
+        next_review_at: Date.now() + (intervalDays ? intervalDays * 86_400_000 : 600_000),
+      };
+      data.flashcards = data.flashcards.map((item) => item.id === id ? updated : item);
+      return response(updated);
+    }
+    if (method === 'DELETE' && path.startsWith('/flashcards/')) {
+      const id = Number(path.split('/').pop());
+      data.flashcards = data.flashcards.filter((card) => card.id !== id);
+      return response({});
     }
     if (method === 'DELETE' && path.startsWith('/subjects/')) {
       const id = Number(path.split('/').pop());
@@ -144,6 +181,39 @@ beforeEach(() => {
 });
 
 describe('fluxos principais da interface', () => {
+  it('cria cartão e agenda a próxima revisão conforme a avaliação', async () => {
+    const user = userEvent.setup();
+    data.subjects = [{ id: 10, name: 'Biologia', color: '#A8D68B', notes: '' }];
+    renderApp();
+    await screen.findByRole('heading', { name: /Estudante/ });
+    await user.click(screen.getByRole('button', { name: 'Cartões' }));
+
+    await user.type(screen.getByRole('textbox', { name: 'Frente' }), 'O que é mitose?');
+    await user.type(screen.getByRole('textbox', { name: 'Verso' }), 'Divisão celular.');
+    await user.click(screen.getByRole('button', { name: 'Adicionar ao baralho' }));
+
+    expect(await screen.findByText('O que é mitose?', { selector: '.flashcard-text' })).not.toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Mostrar resposta' }));
+    expect(screen.getByText('Divisão celular.')).not.toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Bom' }));
+
+    await waitFor(() => {
+      expect(data.flashcards[0]).toMatchObject({ repetitions: 1, interval_days: 1 });
+      expect(screen.getByText('Tudo em dia neste baralho. As próximas revisões aparecem aqui quando chegar a hora.')).not.toBeNull();
+    });
+    expect(requests).toContainEqual({
+      method: 'POST',
+      path: '/flashcards',
+      body: { subject_id: 10, front: 'O que é mitose?', back: 'Divisão celular.' },
+    });
+    expect(requests).toContainEqual({
+      method: 'PATCH',
+      path: `/flashcards/${data.flashcards[0].id}/review`,
+      body: { rating: 'good' },
+    });
+    expect(requests.filter((request) => request.method === 'GET' && request.path === '/all')).toHaveLength(1);
+  });
+
   it('navega pelas seções e cria uma matéria em uma conta vazia', async () => {
     const user = userEvent.setup();
     renderApp();

@@ -6,13 +6,20 @@ import { Avatar, Ground, Sky } from './pixel';
 import { useTimer } from './timer';
 import Login from './pages/Login';
 import Profile from './pages/Profile';
+import Flashcards from './pages/Flashcards';
 import Subjects from './pages/Subjects';
 import Tasks from './pages/Tasks';
 import Today from './pages/Today';
 
-type Tab = 'hoje' | 'mat' | 'tar' | 'perfil';
-const TABS: [Tab, string][] = [['hoje', 'Hoje'], ['mat', 'Matérias'], ['tar', 'Tarefas'], ['perfil', 'Perfil']];
-const EMPTY: AllData = { subjects: [], tasks: [], projects: [], sessions: {} };
+type Tab = 'hoje' | 'mat' | 'tar' | 'cards' | 'perfil';
+const TABS: [Tab, string, string][] = [
+  ['hoje', 'Hoje', 'Hoje'],
+  ['mat', 'Matérias', 'Mat.'],
+  ['tar', 'Tarefas', 'Taref.'],
+  ['cards', 'Cartões', 'Cart.'],
+  ['perfil', 'Perfil', 'Perfil'],
+];
+const EMPTY: AllData = { subjects: [], tasks: [], projects: [], flashcards: [], sessions: {} };
 
 function useData() {
   const { setUser } = useAuth();
@@ -79,7 +86,12 @@ function Shell({ user }: { user: User }) {
             <button className="me" onClick={() => setTab('perfil')} aria-label="Abrir perfil"><Avatar user={user} size={56} /></button>
           </div>
           <nav aria-label="Seções">
-            {TABS.map(([k, n]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{n}</button>)}
+            {TABS.map(([k, n, compact]) => (
+              <button key={k} aria-label={n} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>
+                <span className="nav-label">{n}</span>
+                <span className="nav-label-compact">{compact}</span>
+              </button>
+            ))}
           </nav>
         </div>
       </header>
@@ -91,6 +103,7 @@ function Shell({ user }: { user: User }) {
         {tab === 'hoje' && <Today d={d} act={act} t={timer} />}
         {tab === 'mat' && <Subjects subjects={d.subjects} act={act} />}
         {tab === 'tar' && <Tasks tasks={d.tasks} subjects={d.subjects} projects={d.projects} act={act} />}
+        {tab === 'cards' && <Flashcards cards={d.flashcards} subjects={d.subjects} act={act} />}
         {tab === 'perfil' && <Profile user={user} />}
       </main>
       <Ground />

@@ -47,6 +47,15 @@ test('PostgreSQL inicializa o schema, retorna IDs e mantém isolamento e progres
 
     const project = await db.run('INSERT INTO projects (name, user_id) VALUES (?, ?)', 'Projeto', owner.lastInsertRowid);
     const subject = await db.run('INSERT INTO subjects (name, color, user_id) VALUES (?, ?, ?)', 'Matéria', '#A8D68B', owner.lastInsertRowid);
+    const flashcard = await db.run(
+      'INSERT INTO flashcards (subject_id, front, back, user_id) VALUES (?, ?, ?, ?)',
+      subject.lastInsertRowid, 'Pergunta', 'Resposta', owner.lastInsertRowid,
+    );
+    assert.ok(flashcard.lastInsertRowid);
+    assert.equal(
+      (await db.get('SELECT front FROM flashcards WHERE id = ? AND user_id = ?', flashcard.lastInsertRowid, owner.lastInsertRowid)).front,
+      'Pergunta',
+    );
     const task = await db.run(
       `INSERT INTO tasks (title, subject_id, project_id, due, user_id)
         VALUES (

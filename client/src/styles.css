@@ -20,6 +20,7 @@ h2{font-size:21px;margin:18px 0 10px}
 @keyframes drift{to{left:105%}}
 nav{display:flex;gap:6px;flex-wrap:wrap}
 nav button{font:600 19px var(--px);background:var(--wood2);border:3px solid var(--wood);border-bottom:0;border-radius:9px 9px 0 0;padding:6px 18px;color:var(--ink);cursor:pointer;box-shadow:none}
+.nav-label-compact{display:none}
 nav button:hover{background:var(--sun)}
 nav button.on{position:relative;z-index:2;background:var(--par);padding-top:11px}
 nav button.on::after{content:"";position:absolute;left:0;right:0;bottom:-4px;height:4px;background:var(--par);pointer-events:none}
@@ -72,6 +73,12 @@ pre{background:var(--par2);border-radius:6px;padding:12px;overflow-x:auto;margin
 .project-progress-row{display:flex;align-items:center;gap:10px;width:100%;padding:8px 0}
 .project-progress{height:18px;flex:1;overflow:hidden;border:2px solid var(--wood);border-radius:5px;background:#EADCBB}
 .project-progress div{height:100%;background:var(--g1);border-right:2px solid var(--g2);transition:width .25s ease}
+.study-card{border:2px dashed var(--wood2);border-radius:8px;background:var(--par);padding:18px;margin-top:10px}
+.flashcard-label{font:600 14px var(--px);color:var(--mut);margin:0}
+.flashcard-text{font-size:clamp(18px,3vw,24px);white-space:pre-wrap;overflow-wrap:anywhere;margin:6px 0 16px}
+.study-card hr{border:0;border-top:2px dotted var(--wood2);margin:16px 0}
+.flashcard-form{display:grid;gap:8px}
+.flashcard-input{min-height:120px}
 .err,.error{background:#FBE0D6;border:2px solid var(--bad);border-radius:6px;padding:8px 14px;margin:0 0 14px}
 .err{display:flex;justify-content:space-between;align-items:center;gap:12px}
 .err button{flex:none}
@@ -100,7 +107,7 @@ pre{background:var(--par2);border-radius:6px;padding:12px;overflow-x:auto;margin
 @media(max-width:760px){
   .sun{display:none}
   .prof{grid-template-columns:1fr}
-  .wrap>nav{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px}
+  .wrap>nav{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px}
   .wrap>nav button{min-width:0;padding:6px 2px}
   main.panel{border-top-right-radius:0}
 }
@@ -109,4 +116,8 @@ pre{background:var(--par2);border-radius:6px;padding:12px;overflow-x:auto;margin
   .wrap>nav button{font-size:clamp(12px,3.7vw,16px);white-space:nowrap}
   .wrap>nav button.on{padding-top:11px}
   .prof>.box{min-width:0}
+}
+@media(max-width:480px){
+  .nav-label{display:none}
+  .nav-label-compact{display:inline}
 }
